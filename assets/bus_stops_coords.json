@@ -1,0 +1,162 @@
+[
+	{
+		"stop_code": "Q6 095",
+		"stop_name": "Trạm xe buýt [Q6 095] Chu Văn An, Quận 6",
+		"address": "27 Tháp Mười, Quận 6, Tp.Hồ Chí Minh",
+		"routes": "01, 05, 07, 10, 25, 47, 54, 56, 144, 150",
+		"lat": 10.7476,
+		"lon": 106.6354
+	},
+	{
+		"stop_code": "Q5 060",
+		"stop_name": "Trạm xe buýt [Q5 060] Chung cư Nguyễn Trãi, Quận 5",
+		"address": "549 Nguyễn Trãi, Quận 5, Tp.Hồ Chí Minh",
+		"routes": "01, 54",
+		"lat": 10.7595,
+		"lon": 106.6762
+	},
+	{
+		"stop_code": "Q11 001",
+		"stop_name": "Trạm xe buýt [Q11 001] Nhà sách Phú Thọ, Quận 11",
+		"address": "940 (6B) Đường 3/2, Quận 11, Tp.Hồ Chí Minh",
+		"routes": "02, 14, 27, 103",
+		"lat": 10.7699,
+		"lon": 106.6498
+	},
+	{
+		"stop_code": "QTB 061",
+		"stop_name": "Trạm xe buýt [QTB 061] Hồ Bơi Cộng Hòa, Quận Tân Bình",
+		"address": "1003 Cách Mạng Tháng Tám, Quận Tân Bình, Tp.Hồ Chí Minh",
+		"routes": "30, 65, 103",
+		"lat": 10.7999,
+		"lon": 106.6536
+	},
+	{
+		"stop_code": "QTB 063",
+		"stop_name": "Trạm xe buýt [QTB 063] Bành Văn Trân, Quận Tân Bình",
+		"address": "771 Cách Mạng Tháng Tám, Quận Tân Bình, Tp.Hồ Chí Minh",
+		"routes": "30, 65, 103",
+		"lat": 10.7921,
+		"lon": 106.6571
+	},
+	{
+		"stop_code": "QTB 062",
+		"stop_name": "Trạm xe buýt [QTB 062] Ông Tạ, Quận Tân Bình",
+		"address": "907 Cách Mạng Tháng Tám, Quận Tân Bình, Tp.Hồ Chí Minh",
+		"routes": "30, 65, 103",
+		"lat": 10.796,
+		"lon": 106.6554
+	},
+	{
+		"stop_code": "Q10 083",
+		"stop_name": "Trạm xe buýt [Q10 083] Công Viên Lê Thị Riêng, Quận 10",
+		"address": "Công Viên Lê Thị Riêng Cách Mạng Tháng Tám, Quận 10, Tp.Hồ Chí Minh",
+		"routes": "13, 30, 65, 103",
+		"lat": 10.772,
+		"lon": 106.6658
+	},
+	{
+		"stop_code": "Q10 062",
+		"stop_name": "Trạm xe buýt [Q10 062] Ngân hàng quân đội, Quận 10",
+		"address": "136 Tô Hiến Thành, Quận 10, Tp.Hồ Chí Minh",
+		"routes": "38, 59, 69, 103",
+		"lat": 10.7724,
+		"lon": 106.6633
+	},
+	{
+		"stop_code": "Q10 060",
+		"stop_name": "Trạm xe buýt [Q10 060] BV Trưng Vương, Quận 10",
+		"address": "142 kios 37-38 Tô Hiến Thành, Quận 10, Tp.Hồ Chí Minh",
+		"routes": "38, 59, 69, 103",
+		"lat": 10.7718,
+		"lon": 106.664
+	},
+	{
+		"stop_code": "Q11 002",
+		"stop_name": "Trạm xe buýt [Q11 002] Lãnh Binh Thăng, Quận 11",
+		"address": "970 Đường 3/2, Quận 11, Tp.Hồ Chí Minh",
+		"routes": "02, 14, 103",
+		"lat": 10.7706,
+		"lon": 106.6489
+	},
+	{
+		"stop_code": "Q5 022",
+		"stop_name": "Trạm xe buýt [Q5 022] Bến xe Chợ Lớn, Quận 5",
+		"address": "266 Hồng Bàng, Quận 5, Tp.Hồ Chí Minh",
+		"routes": "23, 66, 103, 139",
+		"lat": 10.7501,
+		"lon": 106.6545
+	},
+	{
+		"stop_code": "Q1 148",
+		"stop_name": "Trạm xe buýt [Q1 148] Chùa Lâm Tế, Quận 1",
+		"address": "Đối diện 211 (212A) Nguyễn Trãi, Quận 1, Tp.Hồ Chí Minh",
+		"routes": "11, 46",
+		"lat": 10.7641,
+		"lon": 106.6869
+	},
+	{
+		"stop_code": "Q10 061",
+		"stop_name": "Trạm xe buýt [Q10 061] Đại Học Bách Khoa (cổng sau), Quận 10",
+		"address": "350 ( cũ 142) Tô Hiến Thành, Quận 10, Tp.Hồ Chí Minh",
+		"routes": "38, 59, 69, 103",
+		"lat": 10.7726,
+		"lon": 106.6586
+	},
+	{
+		"stop_code": "Q11 025",
+		"stop_name": "Trạm xe buýt [Q11 025] Đường 3/2, Quận 11",
+		"address": "170-172 Lê Đại Hành, Quận 11, Tp.Hồ Chí Minh",
+		"routes": "11, 62",
+		"lat": 10.7672,
+		"lon": 106.6582
+	},
+	{
+		"stop_code": "Q11 083",
+		"stop_name": "Trạm xe buýt [Q11 083] Trạm Trần Quý - Tạ Uyên, Quận 11",
+		"address": "193 Tạ Uyên, Quận 11, Tp.Hồ Chí Minh",
+		"routes": "23, 103, 144",
+		"lat": 10.7587,
+		"lon": 106.6501
+	},
+	{
+		"stop_code": "Q11 033",
+		"stop_name": "Trạm xe buýt [Q11 033] Cổng chào CV Đầm sen, Quận 11",
+		"address": "20 Lãnh Binh Thăng, Quận 11, Tp.Hồ Chí Minh",
+		"routes": "11, 62",
+		"lat": 10.765,
+		"lon": 106.6533
+	},
+	{
+		"stop_code": "Q5 080",
+		"stop_name": "Trạm xe buýt [Q5 080] Tạ Uyên, Quận 5",
+		"address": "79 Tạ Uyên, Quận 5, Tp.Hồ Chí Minh",
+		"routes": "23, 66, 96, 103",
+		"lat": 10.7563,
+		"lon": 106.6519
+	},
+	{
+		"stop_code": "Q11 035",
+		"stop_name": "Trạm xe buýt [Q11 035] CV Lãnh Binh Thăng, Quận 11",
+		"address": "Đối diện Trường mầm non (278) Lãnh Binh Thăng, Quận 11, Tp.Hồ Chí Minh",
+		"routes": "11, 23, 62",
+		"lat": 10.7638,
+		"lon": 106.654
+	},
+	{
+		"stop_code": "Q1 149",
+		"stop_name": "Trạm xe buýt [Q1 149] City plaza, Quận 1",
+		"address": "230 Nguyễn Trãi, Quận 1, Tp.Hồ Chí Minh",
+		"routes": "11, 46",
+		"lat": 10.7635,
+		"lon": 106.6864
+	},
+	{
+		"stop_code": "Q11 040",
+		"stop_name": "Trạm xe buýt [Q11 040] Tòa án nhân dân Q11, Quận 11",
+		"address": "150 Ông Ích Khiêm, Quận 11, Tp.Hồ Chí Minh",
+		"routes": "11, 23, 62, 69",
+		"lat": 10.7618,
+		"lon": 106.6557
+	}
+]

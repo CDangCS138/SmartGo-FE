@@ -1,0 +1,95 @@
+{
+	"@@locale": "vi",
+	"appTitle": "SmartGo",
+	"@appTitle": {
+		"description": "Tiêu đề ứng dụng"
+	},
+	"map": "Bản đồ",
+	"@map": {
+		"description": "Tiêu đề màn hình bản đồ"
+	},
+	"settings": "Cài đặt",
+	"@settings": {
+		"description": "Tiêu đề màn hình cài đặt"
+	},
+	"login": "Đăng nhập",
+	"@login": {
+		"description": "Tiêu đề màn hình đăng nhập"
+	},
+	"logout": "Đăng xuất",
+	"@logout": {
+		"description": "Nút đăng xuất"
+	},
+	"email": "Email",
+	"@email": {
+		"description": "Nhãn trường email"
+	},
+	"password": "Mật khẩu",
+	"@password": {
+		"description": "Nhãn trường mật khẩu"
+	},
+	"searchAddress": "Tìm kiếm địa chỉ...",
+	"@searchAddress": {
+		"description": "Placeholder tìm kiếm địa chỉ"
+	},
+	"theme": "Giao diện",
+	"@theme": {
+		"description": "Cài đặt giao diện"
+	},
+	"language": "Ngôn ngữ",
+	"@language": {
+		"description": "Cài đặt ngôn ngữ"
+	},
+	"lightTheme": "Sáng",
+	"@lightTheme": {
+		"description": "Tùy chọn giao diện sáng"
+	},
+	"darkTheme": "Tối",
+	"@darkTheme": {
+		"description": "Tùy chọn giao diện tối"
+	},
+	"systemTheme": "Hệ thống",
+	"@systemTheme": {
+		"description": "Tùy chọn giao diện theo hệ thống"
+	},
+	"customTheme": "Tùy chỉnh",
+	"@customTheme": {
+		"description": "Tùy chọn giao diện tùy chỉnh"
+	},
+	"english": "Tiếng Anh",
+	"@english": {
+		"description": "Ngôn ngữ tiếng Anh"
+	},
+	"vietnamese": "Tiếng Việt",
+	"@vietnamese": {
+		"description": "Ngôn ngữ tiếng Việt"
+	},
+	"busStops": "Trạm xe buýt",
+	"@busStops": {
+		"description": "Nhãn trạm xe buýt"
+	},
+	"routes": "Tuyến đường",
+	"@routes": {
+		"description": "Nhãn tuyến đường"
+	},
+	"search": "Tìm kiếm",
+	"@search": {
+		"description": "Nút tìm kiếm"
+	},
+	"cancel": "Hủy",
+	"@cancel": {
+		"description": "Nút hủy"
+	},
+	"save": "Lưu",
+	"@save": {
+		"description": "Nút lưu"
+	},
+	"error": "Lỗi",
+	"@error": {
+		"description": "Nhãn lỗi"
+	},
+	"success": "Thành công",
+	"@success": {
+		"description": "Nhãn thành công"
+	}
+}

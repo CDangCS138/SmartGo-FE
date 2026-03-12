@@ -1,0 +1,95 @@
+{
+	"@@locale": "en",
+	"appTitle": "SmartGo",
+	"@appTitle": {
+		"description": "Application title"
+	},
+	"map": "Map",
+	"@map": {
+		"description": "Map screen title"
+	},
+	"settings": "Settings",
+	"@settings": {
+		"description": "Settings screen title"
+	},
+	"login": "Login",
+	"@login": {
+		"description": "Login screen title"
+	},
+	"logout": "Logout",
+	"@logout": {
+		"description": "Logout button"
+	},
+	"email": "Email",
+	"@email": {
+		"description": "Email field label"
+	},
+	"password": "Password",
+	"@password": {
+		"description": "Password field label"
+	},
+	"searchAddress": "Search address...",
+	"@searchAddress": {
+		"description": "Search address placeholder"
+	},
+	"theme": "Theme",
+	"@theme": {
+		"description": "Theme settings"
+	},
+	"language": "Language",
+	"@language": {
+		"description": "Language settings"
+	},
+	"lightTheme": "Light",
+	"@lightTheme": {
+		"description": "Light theme option"
+	},
+	"darkTheme": "Dark",
+	"@darkTheme": {
+		"description": "Dark theme option"
+	},
+	"systemTheme": "System",
+	"@systemTheme": {
+		"description": "System theme option"
+	},
+	"customTheme": "Custom",
+	"@customTheme": {
+		"description": "Custom theme option"
+	},
+	"english": "English",
+	"@english": {
+		"description": "English language"
+	},
+	"vietnamese": "Vietnamese",
+	"@vietnamese": {
+		"description": "Vietnamese language"
+	},
+	"busStops": "Bus Stops",
+	"@busStops": {
+		"description": "Bus stops label"
+	},
+	"routes": "Routes",
+	"@routes": {
+		"description": "Routes label"
+	},
+	"search": "Search",
+	"@search": {
+		"description": "Search button"
+	},
+	"cancel": "Cancel",
+	"@cancel": {
+		"description": "Cancel button"
+	},
+	"save": "Save",
+	"@save": {
+		"description": "Save button"
+	},
+	"error": "Error",
+	"@error": {
+		"description": "Error label"
+	},
+	"success": "Success",
+	"@success": {
+		"description": "Success label"
+	}
+}
