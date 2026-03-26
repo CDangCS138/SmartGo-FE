@@ -4,7 +4,7 @@ class ThemeState extends Equatable {
   final ThemeMode themeMode;
 
   const ThemeState({
-    this.themeMode = ThemeMode.system,
+    this.themeMode = ThemeMode.light,
   });
 
   ThemeState copyWith({

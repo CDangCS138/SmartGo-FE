@@ -175,5 +175,7 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
   /// dispose; overriding it here prevents the singleton stream from being
   /// shut down.
   @override
-  Future<void> close() async {}
+  Future<void> close() async {
+    super.close();
+  }
 }

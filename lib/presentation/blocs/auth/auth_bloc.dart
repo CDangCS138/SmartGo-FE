@@ -32,6 +32,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<CheckAuthStatusEvent>(_onCheckAuthStatus);
     on<GetCurrentUserEvent>(_onGetCurrentUser);
     on<RefreshTokenEvent>(_onRefreshToken);
+    on<GoogleOAuthExchangeEvent>(_onGoogleOAuthExchange);
   }
 
   Future<void> _onLogin(
@@ -214,6 +215,49 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
               ));
             } else {
               emit(const AuthUnauthenticated());
+            }
+          },
+          (user) async {
+            emit(AuthAuthenticated(
+              user: user,
+              accessToken: tokens.accessToken,
+            ));
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _onGoogleOAuthExchange(
+    GoogleOAuthExchangeEvent event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(const AuthLoading());
+
+    final result = await authRepository.loginWithGoogle(
+      authCode: event.authCode,
+      state: event.state,
+    );
+
+    await result.fold(
+      (failure) async {
+        emit(AuthError(message: failure.message));
+      },
+      (tokens) async {
+        final userResult = await getCurrentUserUseCase();
+        await userResult.fold(
+          (failure) async {
+            final cachedUser = authRepository.getCachedUser();
+            if (cachedUser != null) {
+              emit(AuthAuthenticated(
+                user: cachedUser,
+                accessToken: tokens.accessToken,
+              ));
+            } else {
+              emit(AuthError(
+                message:
+                    'Đăng nhập Google thành công nhưng không thể lấy thông tin người dùng',
+              ));
             }
           },
           (user) async {

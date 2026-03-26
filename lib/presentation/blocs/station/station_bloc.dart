@@ -101,5 +101,7 @@ class StationBloc extends Bloc<StationEvent, StationState> {
   /// Singleton — do not close. Prevents any BlocProvider(create:...) from
   /// shutting down the singleton stream when the provider is disposed.
   @override
-  Future<void> close() async {}
+  Future<void> close() async {
+    super.close();
+  }
 }

@@ -10,6 +10,7 @@ import 'package:smartgo/domain/repositories/route_repository.dart';
 import 'package:smartgo/presentation/blocs/station/station_bloc.dart';
 import 'package:smartgo/presentation/blocs/station/station_event.dart';
 import 'package:smartgo/presentation/blocs/station/station_state.dart';
+import 'package:smartgo/presentation/screens/route/route_ticket_payment_screen.dart';
 import 'package:smartgo/presentation/widgets/loading_indicator.dart';
 
 class RouteDetailScreen extends StatefulWidget {
@@ -227,6 +228,31 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                   ),
                 ],
               ),
+        bottomNavigationBar: SafeArea(
+          minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: SizedBox(
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: _isLoadingRoute ? null : _onBuyTicketPressed,
+              icon: const Icon(Icons.confirmation_num_outlined),
+              label: const Text(
+                'Mua vé tuyến này',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _onBuyTicketPressed() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => RouteTicketPaymentScreen(route: _route),
       ),
     );
   }

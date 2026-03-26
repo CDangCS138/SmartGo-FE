@@ -149,6 +149,43 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<Either<Failure, AuthTokens>> loginWithGoogle({
+    required String authCode,
+    required String state,
+  }) async {
+    try {
+      final response = await remoteDataSource.exchangeGoogleAuthCode(
+        authCode: authCode,
+        state: state,
+      );
+
+      await storageService.saveAuthToken(response.accessToken);
+      if (response.refreshToken != null) {
+        await storageService.saveRefreshToken(response.refreshToken!);
+      }
+
+      try {
+        final user = await remoteDataSource.getCurrentUser();
+        _cachedUser = user;
+        await storageService.saveUserData(json.encode(user.toJson()));
+      } catch (e) {
+        // Continue even if fetching user data fails
+      }
+
+      return Right(AuthTokens(
+        accessToken: response.accessToken,
+        refreshToken: response.refreshToken,
+      ));
+    } on ValidationException catch (e) {
+      return Left(ValidationFailure(e.message));
+    } on ServerException catch (e) {
+      return Left(ServerFailure(e.message));
+    } catch (e) {
+      return Left(UnexpectedFailure('Lỗi không xác định: $e'));
+    }
+  }
+
+  @override
   Future<Either<Failure, User>> getCurrentUser() async {
     try {
       final token = storageService.getAuthToken();

@@ -22,6 +22,11 @@ abstract class AuthRemoteDataSource {
     required String accessToken,
   });
 
+  Future<LoginResponse> exchangeGoogleAuthCode({
+    required String authCode,
+    required String state,
+  });
+
   Future<UserModel> getCurrentUser();
 }
 
@@ -120,6 +125,40 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
         throw const ValidationException('Token không hợp lệ');
       } else {
         throw ServerException('Làm mới token thất bại: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (e is ServerException || e is ValidationException) rethrow;
+      throw ServerException('Lỗi kết nối: $e');
+    }
+  }
+
+  @override
+  Future<LoginResponse> exchangeGoogleAuthCode({
+    required String authCode,
+    required String state,
+  }) async {
+    try {
+      final response = await client.post(
+        Uri.parse('$baseUrl/api/v1/auth/google/exchange'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'authCode': authCode,
+          'state': state,
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final jsonResponse = json.decode(response.body);
+        return LoginResponse.fromJson(jsonResponse);
+      } else if (response.statusCode == 400 || response.statusCode == 401) {
+        final jsonResponse = json.decode(response.body);
+        final message =
+            jsonResponse['message'] ?? 'Mã xác thực Google không hợp lệ';
+        throw ValidationException(message);
+      } else {
+        throw ServerException(
+          'Đổi mã xác thực Google thất bại: ${response.statusCode}',
+        );
       }
     } catch (e) {
       if (e is ServerException || e is ValidationException) rethrow;

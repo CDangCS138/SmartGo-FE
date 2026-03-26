@@ -27,33 +27,19 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   final TextEditingController _searchController = TextEditingController();
   final MapController _mapController = MapController();
 
-  ColorScheme? _cachedScheme;
-
   LatLng _currentPosition = const LatLng(10.8231, 106.6297);
   LatLng? _userLocation;
 
-  List<Marker> _markers = [];
   List<Station> _backendStations = [];
-  Station? _selectedStation; // Track selected station for highlighting
+  Station? _selectedStation;
 
   bool _isLoading = false;
   double _currentZoom = 13.0;
-  double _lastZoomForMarkerUpdate =
-      13.0; // Track zoom to avoid unnecessary rebuilds
 
   List<Station> _searchResults = [];
   Timer? _debounceTimer;
-  Timer? _zoomDebounceTimer; // Debounce for zoom-based marker updates
 
   static const double _minZoomForStations = 13.0;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Accessing inherited widgets (Theme/MediaQuery/etc.) should happen here
-    // (or in build), not during initState-triggered work.
-    _cachedScheme = Theme.of(context).colorScheme;
-  }
 
   @override
   void initState() {
@@ -66,12 +52,14 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     _mapController.mapEventStream.listen((event) {
       if (!mounted) return;
       if (event is MapEventMove) {
-        _currentZoom = event.camera.zoom;
-        // Debounce marker updates to avoid excessive rebuilds during pan/zoom
-        _zoomDebounceTimer?.cancel();
-        _zoomDebounceTimer = Timer(const Duration(milliseconds: 150), () {
-          if (mounted) _updateMarkersBasedOnZoom();
-        });
+        final newZoom = event.camera.zoom;
+        final wasShowing = _currentZoom >= _minZoomForStations;
+        final nowShowing = newZoom >= _minZoomForStations;
+        _currentZoom = newZoom;
+        // Only rebuild when crossing the visibility threshold
+        if (wasShowing != nowShowing) {
+          setState(() {});
+        }
       }
     });
   }
@@ -79,7 +67,6 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   @override
   void dispose() {
     _debounceTimer?.cancel();
-    _zoomDebounceTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -108,10 +95,6 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
         _backendStations = currentState.stations;
         _isLoading = false;
       });
-      // Defer marker creation until after the first build so Theme is available.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _updateMarkersBasedOnZoom();
-      });
       return;
     }
     // Otherwise fetch from API
@@ -123,68 +106,6 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
             refresh: true,
           ),
         );
-  }
-
-  void _updateMarkersBasedOnZoom() {
-    // Only update markers when zoom crosses the threshold to minimize rebuilds
-    final nowAboveThreshold = _currentZoom >= _minZoomForStations;
-    final wasAboveThreshold = _lastZoomForMarkerUpdate >= _minZoomForStations;
-
-    if (nowAboveThreshold != wasAboveThreshold ||
-        (nowAboveThreshold && _markers.isEmpty)) {
-      _lastZoomForMarkerUpdate = _currentZoom;
-      if (nowAboveThreshold) {
-        _updateBackendMarkers();
-      } else {
-        setState(() => _markers = []);
-      }
-    }
-  }
-
-  void _updateBackendMarkers() {
-    if (!mounted || _backendStations.isEmpty) return;
-    final scheme = _cachedScheme;
-    if (scheme == null) return;
-
-    setState(() {
-      _markers = _backendStations.map((station) {
-        final isSelected = _selectedStation?.stationCode == station.stationCode;
-        return Marker(
-          width: isSelected ? 40.0 : 28.0,
-          height: isSelected ? 40.0 : 28.0,
-          point: LatLng(
-            station.latitude,
-            station.longitude,
-          ),
-          alignment: Alignment.center,
-          child: GestureDetector(
-            onTap: () => _showStationDetail(station),
-            child: Container(
-              decoration: BoxDecoration(
-                color: isSelected ? Colors.orange : scheme.primary,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white,
-                  width: isSelected ? 3 : 2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.25),
-                    blurRadius: isSelected ? 6 : 3,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.directions_bus,
-                color: Colors.white,
-                size: isSelected ? 20 : 14,
-              ),
-            ),
-          ),
-        );
-      }).toList();
-    });
   }
 
   void _showStationDetail(Station station) {
@@ -232,18 +153,58 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     setState(() {
       _searchController.clear();
       _searchResults = [];
-      _selectedStation = station; // Highlight the selected station
+      _selectedStation = station;
     });
 
-    _updateBackendMarkers(); // Rebuild markers with selected highlight
     // Zoom to level 18 - beyond disableClusteringAtZoom (17) to show individual marker
     _mapController.move(position, 18);
     _showStationDetail(station);
   }
 
+  List<Marker> _buildStationMarkers(ColorScheme scheme) {
+    if (_currentZoom < _minZoomForStations || _backendStations.isEmpty) {
+      return const [];
+    }
+    return _backendStations.map((station) {
+      final isSelected = _selectedStation?.stationCode == station.stationCode;
+      return Marker(
+        width: isSelected ? 40.0 : 28.0,
+        height: isSelected ? 40.0 : 28.0,
+        point: LatLng(station.latitude, station.longitude),
+        alignment: Alignment.center,
+        child: GestureDetector(
+          onTap: () => _showStationDetail(station),
+          child: Container(
+            decoration: BoxDecoration(
+              color: isSelected ? Colors.orange : scheme.primary,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white,
+                width: isSelected ? 3 : 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: isSelected ? 6 : 3,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.directions_bus,
+              color: Colors.white,
+              size: isSelected ? 20 : 14,
+            ),
+          ),
+        ),
+      );
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final stationMarkers = _buildStationMarkers(scheme);
 
     return BlocListener<StationBloc, StationState>(
       listener: (context, state) {
@@ -257,7 +218,6 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
             _backendStations = state.stations;
             _isLoading = false;
           });
-          _updateMarkersBasedOnZoom();
           return;
         }
         if (state is StationError) {
@@ -308,7 +268,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                         true, // Zoom to show all markers in cluster when tapped
                     spiderfyCluster:
                         true, // Enable spiderfy to show all stations in tight clusters
-                    markers: _markers,
+                    markers: stationMarkers,
                     onClusterTap: (clusterNode) {
                       // Zoom in to expand the cluster
                       final center = clusterNode.bounds.center;

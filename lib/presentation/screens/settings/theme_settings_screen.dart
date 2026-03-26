@@ -19,41 +19,52 @@ class ThemeSettingsScreen extends StatelessWidget {
       body: BlocBuilder<ThemeBloc, ThemeState>(
         builder: (context, state) {
           return ListView(
+            padding: const EdgeInsets.symmetric(vertical: 8),
             children: [
-              RadioListTile<app_theme.ThemeMode>(
-                title: Text(l10n.lightTheme),
+              _buildThemeTile(
+                context,
+                title: l10n.lightTheme,
                 value: app_theme.ThemeMode.light,
-                groupValue: state.themeMode,
-                onChanged: (value) {
-                  if (value != null) {
-                    context.read<ThemeBloc>().add(ThemeChanged(value));
-                  }
-                },
+                current: state.themeMode,
               ),
-              RadioListTile<app_theme.ThemeMode>(
-                title: Text(l10n.darkTheme),
+              _buildThemeTile(
+                context,
+                title: l10n.darkTheme,
                 value: app_theme.ThemeMode.dark,
-                groupValue: state.themeMode,
-                onChanged: (value) {
-                  if (value != null) {
-                    context.read<ThemeBloc>().add(ThemeChanged(value));
-                  }
-                },
+                current: state.themeMode,
               ),
-              RadioListTile<app_theme.ThemeMode>(
-                title: Text(l10n.systemTheme),
+              _buildThemeTile(
+                context,
+                title: l10n.systemTheme,
                 value: app_theme.ThemeMode.system,
-                groupValue: state.themeMode,
-                onChanged: (value) {
-                  if (value != null) {
-                    context.read<ThemeBloc>().add(ThemeChanged(value));
-                  }
-                },
+                current: state.themeMode,
               ),
             ],
           );
         },
       ),
+    );
+  }
+
+  Widget _buildThemeTile(
+    BuildContext context, {
+    required String title,
+    required app_theme.ThemeMode value,
+    required app_theme.ThemeMode current,
+  }) {
+    final selected = value == current;
+    final scheme = Theme.of(context).colorScheme;
+
+    return ListTile(
+      leading: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_off,
+        color: selected ? scheme.primary : scheme.onSurfaceVariant,
+      ),
+      title: Text(title),
+      trailing: selected
+          ? Icon(Icons.check, color: scheme.primary)
+          : const SizedBox.shrink(),
+      onTap: () => context.read<ThemeBloc>().add(ThemeChanged(value)),
     );
   }
 }

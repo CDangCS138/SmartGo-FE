@@ -67,7 +67,6 @@ windows/flutter/generated_plugin_registrant.h
 windows/flutter/generated_plugins.cmake
 
 # Web
-lib/generated_plugin_registrant.dart
 
 # Coverage
 coverage/

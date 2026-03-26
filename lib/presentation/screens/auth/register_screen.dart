@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'dart:math';
 import '../../../core/routes/app_routes.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/auth/auth_event.dart';
@@ -14,6 +18,8 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  static const _googleOAuthStateStorageKey = 'google_oauth_state_register';
+
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -22,6 +28,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isEmailInput = true;
+  bool _isHandlingOAuthCallback = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _tryHandleGoogleOAuthCallbackFromCurrentUrl();
+    });
+  }
 
   @override
   void dispose() {
@@ -91,6 +106,191 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
           );
     }
+  }
+
+  String _generateOAuthState() {
+    final random = Random.secure().nextInt(9000000) + 1000000;
+    return random.toString();
+  }
+
+  Future<void> _handleGoogleOAuth() async {
+    final state = _generateOAuthState();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_googleOAuthStateStorageKey, state);
+
+    final authUri = Uri.parse(
+      'https://smart-go.onrender.com/api/v1/auth/google?state=$state',
+    );
+
+    if (kIsWeb) {
+      await launchUrl(authUri, webOnlyWindowName: '_self');
+      return;
+    }
+
+    final opened = await launchUrl(
+      authUri,
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!opened || !mounted) {
+      return;
+    }
+
+    final callbackInput = await _showGoogleCallbackInputDialog();
+    if (!mounted || callbackInput == null || callbackInput.trim().isEmpty) {
+      return;
+    }
+
+    final callbackParams = _extractGoogleCallbackParams(callbackInput);
+    final authCode = callbackParams?['authCode'];
+    final callbackState = callbackParams?['state'];
+
+    if (authCode == null || callbackState == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Không đọc được auth_code hoặc state từ URL callback'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (callbackState != state) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('State không khớp, vui lòng thử đăng nhập Google lại'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    context.read<AuthBloc>().add(
+          GoogleOAuthExchangeEvent(
+            authCode: authCode,
+            state: callbackState,
+          ),
+        );
+  }
+
+  Future<void> _tryHandleGoogleOAuthCallbackFromCurrentUrl() async {
+    if (_isHandlingOAuthCallback || !mounted) {
+      return;
+    }
+
+    final callbackParams = _extractGoogleCallbackParams(Uri.base.toString()) ??
+        _extractGoogleCallbackParamsFromFragment(Uri.base.fragment);
+
+    final authCode = callbackParams?['authCode'];
+    final callbackState = callbackParams?['state'];
+    if (authCode == null || callbackState == null) {
+      return;
+    }
+
+    _isHandlingOAuthCallback = true;
+
+    final prefs = await SharedPreferences.getInstance();
+    final expectedState = prefs.getString(_googleOAuthStateStorageKey);
+    await prefs.remove(_googleOAuthStateStorageKey);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (expectedState != null && expectedState != callbackState) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('State không khớp, vui lòng đăng nhập Google lại'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    context.read<AuthBloc>().add(
+          GoogleOAuthExchangeEvent(
+            authCode: authCode,
+            state: callbackState,
+          ),
+        );
+  }
+
+  Map<String, String>? _extractGoogleCallbackParamsFromFragment(
+      String fragment) {
+    if (fragment.isEmpty || !fragment.contains('?')) {
+      return null;
+    }
+
+    final queryString = fragment.substring(fragment.indexOf('?') + 1);
+    return _extractGoogleCallbackParams(queryString);
+  }
+
+  Future<String?> _showGoogleCallbackInputDialog() async {
+    final controller = TextEditingController();
+    final callback = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Nhập URL callback Google'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: 'Dán URL chứa auth_code và state',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Hủy'),
+            ),
+            ElevatedButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('Xác nhận'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    return callback;
+  }
+
+  Map<String, String>? _extractGoogleCallbackParams(String callbackInput) {
+    final input = callbackInput.trim();
+    if (input.isEmpty) {
+      return null;
+    }
+
+    try {
+      final uri = Uri.parse(input);
+      if (uri.queryParameters.isNotEmpty) {
+        final authCode =
+            uri.queryParameters['auth_code'] ?? uri.queryParameters['code'];
+        final state = uri.queryParameters['state'];
+        if (authCode != null && state != null) {
+          return {'authCode': authCode, 'state': state};
+        }
+      }
+    } catch (_) {
+      // Fallback to parsing as raw query string.
+    }
+
+    try {
+      final queryString = input.startsWith('?') ? input.substring(1) : input;
+      final queryParams = Uri.splitQueryString(queryString);
+      final authCode = queryParams['auth_code'] ?? queryParams['code'];
+      final state = queryParams['state'];
+      if (authCode != null && state != null) {
+        return {'authCode': authCode, 'state': state};
+      }
+    } catch (_) {
+      return null;
+    }
+
+    return null;
   }
 
   @override
@@ -385,12 +585,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     // Google Sign In
                     OutlinedButton(
                       onPressed: () {
-                        // TODO: Implement Google Sign In
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Tính năng đang phát triển'),
-                          ),
-                        );
+                        final isLoading =
+                            context.read<AuthBloc>().state is AuthLoading;
+                        if (!isLoading) {
+                          _handleGoogleOAuth();
+                        }
                       },
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),

@@ -57,3 +57,16 @@ class RefreshTokenEvent extends AuthEvent {
   @override
   List<Object?> get props => [accessToken];
 }
+
+class GoogleOAuthExchangeEvent extends AuthEvent {
+  final String authCode;
+  final String state;
+
+  const GoogleOAuthExchangeEvent({
+    required this.authCode,
+    required this.state,
+  });
+
+  @override
+  List<Object?> get props => [authCode, state];
+}

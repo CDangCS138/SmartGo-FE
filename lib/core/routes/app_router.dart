@@ -12,6 +12,8 @@ import '../../presentation/screens/auth/register_screen.dart';
 import '../../presentation/screens/settings/settings_screen.dart';
 import '../../presentation/screens/settings/theme_settings_screen.dart';
 import '../../presentation/screens/settings/language_settings_screen.dart';
+import '../../presentation/screens/users/users_admin_screen.dart';
+import '../../presentation/screens/profile/profile_screen.dart';
 import '../../presentation/screens/route/route_list_screen.dart';
 import '../../presentation/blocs/auth/auth_bloc.dart';
 import '../../presentation/blocs/auth/auth_state.dart';
@@ -74,6 +76,11 @@ class AppRouter {
         builder: (context, state) => const MapScreen(),
       ),
       GoRoute(
+        path: AppRoutes.profile,
+        name: 'profile',
+        builder: (context, state) => const ProfileScreen(),
+      ),
+      GoRoute(
         path: AppRoutes.settings,
         name: 'settings',
         builder: (context, state) => const SettingsScreen(),
@@ -87,6 +94,11 @@ class AppRouter {
             path: 'language',
             name: 'language-settings',
             builder: (context, state) => const LanguageSettingsScreen(),
+          ),
+          GoRoute(
+            path: 'users',
+            name: 'users-admin',
+            builder: (context, state) => const UsersAdminScreen(),
           ),
         ],
       ),

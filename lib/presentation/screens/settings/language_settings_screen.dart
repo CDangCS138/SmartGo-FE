@@ -21,35 +21,46 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
         title: Text(l10n.language),
       ),
       body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
-          RadioListTile<String>(
-            title: Text(l10n.english),
+          _buildLanguageTile(
+            context,
+            label: l10n.english,
             value: 'en',
-            groupValue: _selectedLanguage,
-            onChanged: (value) {
-              if (value != null) {
-                setState(() {
-                  _selectedLanguage = value;
-                });
-                // In real app, would save to storage and update locale
-              }
-            },
           ),
-          RadioListTile<String>(
-            title: Text(l10n.vietnamese),
+          _buildLanguageTile(
+            context,
+            label: l10n.vietnamese,
             value: 'vi',
-            groupValue: _selectedLanguage,
-            onChanged: (value) {
-              if (value != null) {
-                setState(() {
-                  _selectedLanguage = value;
-                });
-                // In real app, would save to storage and update locale
-              }
-            },
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildLanguageTile(
+    BuildContext context, {
+    required String label,
+    required String value,
+  }) {
+    final selected = _selectedLanguage == value;
+    final scheme = Theme.of(context).colorScheme;
+
+    return ListTile(
+      leading: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_off,
+        color: selected ? scheme.primary : scheme.onSurfaceVariant,
+      ),
+      title: Text(label),
+      trailing: selected
+          ? Icon(Icons.check, color: scheme.primary)
+          : const SizedBox.shrink(),
+      onTap: () {
+        setState(() {
+          _selectedLanguage = value;
+        });
+        // In real app, save language to storage and update locale
+      },
     );
   }
 }

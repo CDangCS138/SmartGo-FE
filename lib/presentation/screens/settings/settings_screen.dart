@@ -26,6 +26,14 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         children: [
           ListTile(
+            leading: const Icon(Icons.person_outline),
+            title: const Text('Hồ sơ cá nhân'),
+            subtitle: const Text('Thông tin tài khoản và tuỳ chọn nhanh'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go(AppRoutes.profile),
+          ),
+          const Divider(height: 1),
+          ListTile(
             leading: const Icon(Icons.palette),
             title: Text(l10n.theme),
             subtitle: BlocBuilder<ThemeBloc, ThemeState>(
@@ -41,6 +49,13 @@ class SettingsScreen extends StatelessWidget {
             title: Text(l10n.language),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.go(AppRoutes.languageSettings),
+          ),
+          ListTile(
+            leading: const Icon(Icons.manage_accounts_outlined),
+            title: const Text('Quản lý người dùng'),
+            subtitle: const Text('CRUD users cho admin'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go(AppRoutes.usersAdmin),
           ),
           const Divider(),
           ListTile(

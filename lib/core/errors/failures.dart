@@ -34,3 +34,11 @@ class NotFoundFailure extends Failure {
 class UnexpectedFailure extends Failure {
   const UnexpectedFailure([super.message = 'An unexpected error occurred']);
 }
+
+class BadRequestFailure extends Failure {
+  const BadRequestFailure([super.message = 'Bad request']);
+}
+
+class UnauthorizedFailure extends Failure {
+  const UnauthorizedFailure([super.message = 'Unauthorized']);
+}

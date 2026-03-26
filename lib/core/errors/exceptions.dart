@@ -22,3 +22,13 @@ class NotFoundException implements Exception {
   final String message;
   const NotFoundException([this.message = 'Resource not found']);
 }
+
+class BadRequestException implements Exception {
+  final String message;
+  const BadRequestException([this.message = 'Bad request']);
+}
+
+class UnauthorizedException implements Exception {
+  final String message;
+  const UnauthorizedException([this.message = 'Unauthorized']);
+}

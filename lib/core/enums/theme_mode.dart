@@ -25,7 +25,7 @@ extension ThemeModeExtension on ThemeMode {
       case 'system':
         return ThemeMode.system;
       default:
-        return ThemeMode.system;
+        return ThemeMode.light;
     }
   }
 }

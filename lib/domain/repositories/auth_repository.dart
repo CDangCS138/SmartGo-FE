@@ -22,6 +22,12 @@ abstract class AuthRepository {
     required String accessToken,
   });
 
+  /// Exchange Google OAuth2 auth code for access token
+  Future<Either<Failure, AuthTokens>> loginWithGoogle({
+    required String authCode,
+    required String state,
+  });
+
   /// Get current user information
   Future<Either<Failure, User>> getCurrentUser();
 
