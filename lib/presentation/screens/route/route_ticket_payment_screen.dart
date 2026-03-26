@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:smartgo/core/di/injection.dart';
@@ -473,18 +475,11 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
             );
 
       final paymentUri = Uri.tryParse(createResponse.paymentUrl);
-      if (paymentUri != null) {
-        final opened = await launchUrl(
-          paymentUri,
-          mode: LaunchMode.externalApplication,
-        );
-
-        if (!opened) {
-          throw Exception('Không thể mở trang thanh toán $_selectedProvider');
-        }
-      } else {
+      if (paymentUri == null) {
         throw Exception('Liên kết thanh toán không hợp lệ');
       }
+
+      await _openPaymentPage(paymentUri);
 
       if (!mounted) return;
 
@@ -521,6 +516,30 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
 
   String _formatVnd(int amount) {
     return '${_currencyFormat.format(amount)}đ';
+  }
+
+  Future<void> _openPaymentPage(Uri paymentUri) async {
+    try {
+      final opened = kIsWeb
+          ? await launchUrl(paymentUri, webOnlyWindowName: '_self')
+          : await launchUrl(
+              paymentUri,
+              mode: LaunchMode.externalApplication,
+            );
+
+      if (!opened) {
+        throw Exception('Không thể mở trang thanh toán $_selectedProvider');
+      }
+    } on MissingPluginException {
+      final opened = await launchUrl(
+        paymentUri,
+        mode: LaunchMode.platformDefault,
+      );
+
+      if (!opened) {
+        throw Exception('Không thể mở trang thanh toán $_selectedProvider');
+      }
+    }
   }
 }
 

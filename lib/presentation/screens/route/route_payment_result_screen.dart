@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:smartgo/data/datasources/payment_remote_data_source.dart';
@@ -415,10 +417,20 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
       return;
     }
 
-    final opened = await launchUrl(
-      paymentUri,
-      mode: LaunchMode.externalApplication,
-    );
+    bool opened;
+    try {
+      opened = kIsWeb
+          ? await launchUrl(paymentUri, webOnlyWindowName: '_self')
+          : await launchUrl(
+              paymentUri,
+              mode: LaunchMode.externalApplication,
+            );
+    } on MissingPluginException {
+      opened = await launchUrl(
+        paymentUri,
+        mode: LaunchMode.platformDefault,
+      );
+    }
 
     if (!mounted || opened) return;
 
