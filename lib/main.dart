@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartgo/l10n/app_localizations.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:url_strategy/url_strategy.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/preload_service.dart';
 import 'core/di/injection.dart';
@@ -19,6 +20,7 @@ import 'core/enums/theme_mode.dart' as app_theme;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  setPathUrlStrategy();
   try {
     await dotenv.load(fileName: '.env');
     AppLogger.info('Environment variables loaded');

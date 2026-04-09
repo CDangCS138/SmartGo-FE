@@ -130,6 +130,12 @@ class RouteRemoteDataSourceImpl implements RouteRemoteDataSource {
       } else if (response.statusCode == 404) {
         throw const NotFoundException('No path found between the stations');
       } else {
+        final message = _extractApiErrorMessage(response.body);
+        if (message != null && message.isNotEmpty) {
+          throw ServerException(
+            'Failed to find path (${response.statusCode}): $message',
+          );
+        }
         throw ServerException('Failed to find path: ${response.statusCode}');
       }
     } catch (e) {
@@ -138,5 +144,38 @@ class RouteRemoteDataSourceImpl implements RouteRemoteDataSource {
       }
       throw NetworkException('Network error occurred: $e');
     }
+  }
+
+  String? _extractApiErrorMessage(String rawBody) {
+    final body = rawBody.trim();
+    if (body.isEmpty) {
+      return null;
+    }
+
+    try {
+      final parsed = json.decode(body);
+      if (parsed is Map<String, dynamic>) {
+        final direct = parsed['message']?.toString();
+        if ((direct ?? '').isNotEmpty) {
+          return direct;
+        }
+
+        final error = parsed['error'];
+        if (error is String && error.isNotEmpty) {
+          return error;
+        }
+
+        if (error is List && error.isNotEmpty) {
+          final first = error.first?.toString();
+          if ((first ?? '').isNotEmpty) {
+            return first;
+          }
+        }
+      }
+    } catch (_) {
+      // Ignore parsing errors and use fallback.
+    }
+
+    return body;
   }
 }

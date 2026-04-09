@@ -9,6 +9,7 @@ import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:smartgo/core/di/injection.dart';
+import 'package:smartgo/core/services/text_to_speech_service.dart';
 import 'package:smartgo/core/services/route_geometry_service.dart';
 import 'package:smartgo/presentation/blocs/route/route_bloc.dart';
 import 'package:smartgo/presentation/blocs/route/route_event.dart';
@@ -19,6 +20,8 @@ import 'package:smartgo/presentation/blocs/station/station_state.dart';
 import 'package:smartgo/domain/entities/station.dart';
 import 'package:smartgo/domain/entities/path_finding.dart';
 import 'package:smartgo/presentation/widgets/loading_indicator.dart';
+import 'package:smartgo/presentation/widgets/tts_icon_button.dart';
+import 'package:smartgo/presentation/widgets/voice_input_icon_button.dart';
 
 /// Enum for input mode
 enum InputMode {
@@ -66,6 +69,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   List<Station> _stations = [];
   List<PathResult>? _paths;
   bool _isLoading = false;
+  bool _isSpeakingRouteGuide = false;
 
   // Route geometry service and cache
   final RouteGeometryService _routeGeometryService =
@@ -90,6 +94,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
   @override
   void dispose() {
+    TextToSpeechService.instance.stop();
     _fromAddressController.dispose();
     _toAddressController.dispose();
     _fromAddressDebounce?.cancel();
@@ -131,6 +136,99 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+
+  String _formatCostForSpeech(double value) {
+    final rounded = value.round();
+    final grouped = rounded.toString().replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (match) => '${match[1]},',
+        );
+    return '$grouped đồng';
+  }
+
+  String _buildAccessibilityRouteGuidance(PathResult path) {
+    final startName = path.stations.isNotEmpty
+        ? path.stations.first.stationName
+        : (_fromStation?.stationName ?? 'điểm xuất phát');
+    final endName = path.stations.isNotEmpty
+        ? path.stations.last.stationName
+        : (_toStation?.stationName ?? 'điểm đến');
+
+    final buffer = StringBuffer();
+    buffer.writeln('SmartGo xin gửi hướng dẫn di chuyển chi tiết.');
+    buffer.writeln('Bạn đi từ $startName đến $endName.');
+    buffer.writeln(
+      'Tổng thời gian dự kiến ${path.formattedTime}, quãng đường ${path.formattedDistance}, chi phí ${path.formattedCost}.',
+    );
+
+    if (path.numberOfTransfers <= 0) {
+      buffer.writeln('Lộ trình này không cần chuyển tuyến.');
+    } else {
+      buffer.writeln(
+          'Lộ trình này có ${path.numberOfTransfers} lần chuyển tuyến.');
+    }
+
+    if (path.segments.isEmpty) {
+      buffer.writeln('Hiện chưa có dữ liệu từng bước chi tiết.');
+    } else {
+      buffer.writeln('Các bước di chuyển như sau.');
+      for (var i = 0; i < path.segments.length; i++) {
+        final segment = path.segments[i];
+        final duration = segment.time > 0
+            ? '${segment.time.toStringAsFixed(0)} phút'
+            : 'chưa có thời gian ước tính';
+        final distance = '${segment.distance.toStringAsFixed(1)} ki lô mét';
+        final cost = segment.cost > 0
+            ? 'chi phí khoảng ${_formatCostForSpeech(segment.cost)}'
+            : 'không phát sinh thêm chi phí';
+
+        buffer.writeln(
+          'Bước ${i + 1}. Đi tuyến ${segment.routeCode}, ${segment.routeName}. Từ ${segment.from} đến ${segment.to}. Quãng đường $distance, thời gian $duration, $cost.',
+        );
+
+        if (i < path.segments.length - 1) {
+          buffer.writeln(
+            'Khi xuống trạm, bạn dừng lại vài giây để định hướng rồi mới di chuyển sang tuyến tiếp theo.',
+          );
+        }
+      }
+    }
+
+    buffer.writeln(
+      'Lưu ý an toàn. Hãy đi chậm, bám tay vịn khi lên xuống xe. Ưu tiên lối đi bằng phẳng và khu vực có ánh sáng tốt. Nếu cần, hãy nhờ phụ xe hoặc người xung quanh hỗ trợ.',
+    );
+    buffer.writeln('Chúc bạn di chuyển an toàn.');
+
+    return buffer.toString();
+  }
+
+  Future<void> _speakRouteGuidance(PathResult path) async {
+    if (_isSpeakingRouteGuide) {
+      return;
+    }
+
+    final content = _buildAccessibilityRouteGuidance(path);
+    setState(() => _isSpeakingRouteGuide = true);
+
+    final success = await TextToSpeechService.instance.speak(content);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() => _isSpeakingRouteGuide = false);
+
+    if (!success) {
+      _showError('Không thể đọc hướng dẫn lộ trình lúc này.');
+    }
+  }
+
+  Future<void> _stopRouteGuidance() async {
+    await TextToSpeechService.instance.stop();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _isSpeakingRouteGuide = false);
   }
 
   void _onMapTap(LatLng point) {
@@ -265,6 +363,10 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   }
 
   void _findPath() {
+    if (_isSpeakingRouteGuide) {
+      TextToSpeechService.instance.stop();
+    }
+
     if (_inputMode == InputMode.busStop) {
       if (_fromStation == null || _toStation == null) {
         _showError('Vui lòng chọn trạm xuất phát và trạm đích trên bản đồ');
@@ -283,6 +385,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       _showFullRouteDetail = false;
       _paths = null;
       _selectedPathIndex = null;
+      _isSpeakingRouteGuide = false;
       _routeGeometry = null; // Reset geometry when starting new search
     });
 
@@ -310,6 +413,10 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   }
 
   void _reset() {
+    if (_isSpeakingRouteGuide) {
+      TextToSpeechService.instance.stop();
+    }
+
     setState(() {
       _fromPoint = null;
       _toPoint = null;
@@ -319,6 +426,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       _selectedPathIndex = null;
       _showResults = false;
       _showFullRouteDetail = false;
+      _isSpeakingRouteGuide = false;
       _fromAddressController.clear();
       _toAddressController.clear();
       _fromAddressResults.clear();
@@ -395,11 +503,15 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                     _isLoading = true;
                   });
                 } else if (state is PathsFound) {
+                  if (_isSpeakingRouteGuide) {
+                    TextToSpeechService.instance.stop();
+                  }
                   final pathsCount = state.paths.length;
                   setState(() {
                     _isLoading = false;
                     _paths = state.paths;
                     _selectedPathIndex = pathsCount > 0 ? 0 : null;
+                    _isSpeakingRouteGuide = false;
                     // Chỉ hiển thị panel kết quả khi có ít nhất 1 lộ trình
                     _showResults = pathsCount > 0;
                     _routeGeometry = null; // Reset route geometry
@@ -410,10 +522,14 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                     _loadRouteGeometry(state.paths[0]);
                   }
                 } else if (state is PathFindingError) {
+                  if (_isSpeakingRouteGuide) {
+                    TextToSpeechService.instance.stop();
+                  }
                   setState(() {
                     _isLoading = false;
                     _showResults = false;
                     _paths = null;
+                    _isSpeakingRouteGuide = false;
                   });
                   _showError('Lỗi tìm đường: ${state.message}');
                 }
@@ -997,9 +1113,13 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       color: isSelected ? Colors.blue[50] : null,
       child: InkWell(
         onTap: () {
+          if (_isSpeakingRouteGuide) {
+            TextToSpeechService.instance.stop();
+          }
           setState(() {
             _selectedPathIndex = index;
             _showFullRouteDetail = true;
+            _isSpeakingRouteGuide = false;
             _routeGeometry = null; // Reset geometry for new path
           });
           // Load geometry for the newly selected path
@@ -1094,6 +1214,40 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     );
   }
 
+  void _onFromAddressInputChanged(String value) {
+    setState(() {});
+    _fromAddressDebounce?.cancel();
+    _fromAddressDebounce = Timer(
+      const Duration(milliseconds: 500),
+      () {
+        if (value.isNotEmpty) {
+          _searchAddress(value, true);
+        } else {
+          setState(() {
+            _fromAddressResults.clear();
+          });
+        }
+      },
+    );
+  }
+
+  void _onToAddressInputChanged(String value) {
+    setState(() {});
+    _toAddressDebounce?.cancel();
+    _toAddressDebounce = Timer(
+      const Duration(milliseconds: 500),
+      () {
+        if (value.isNotEmpty) {
+          _searchAddress(value, false);
+        } else {
+          setState(() {
+            _toAddressResults.clear();
+          });
+        }
+      },
+    );
+  }
+
   Widget _buildAddressInputPanel() {
     final scheme = Theme.of(context).colorScheme;
 
@@ -1137,35 +1291,43 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                   hintText: 'VD: 268 Lý Thường Kiệt, Quận 10, TP.HCM',
                   prefixIcon: Icon(Icons.my_location, color: scheme.primary),
                   border: const OutlineInputBorder(),
-                  suffixIcon: _fromAddressController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: () {
-                            setState(() {
-                              _fromAddressController.clear();
-                              _fromPoint = null;
-                              _fromAddressResults.clear();
-                            });
-                          },
-                        )
-                      : null,
+                  suffixIconConstraints: const BoxConstraints(
+                    minWidth: 44,
+                    minHeight: 44,
+                    maxWidth: 140,
+                  ),
+                  suffixIcon: SizedBox(
+                    width: _fromAddressController.text.isNotEmpty ? 132 : 88,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        VoiceInputIconButton(
+                          controller: _fromAddressController,
+                          tooltip: 'Nhập điểm xuất phát bằng giọng nói',
+                          stopTooltip: 'Dừng nhập giọng nói',
+                          onTextChanged: _onFromAddressInputChanged,
+                        ),
+                        TtsIconButton(
+                          controller: _fromAddressController,
+                          tooltip: 'Đọc điểm xuất phát',
+                          emptyMessage: 'Bạn chưa nhập điểm xuất phát để đọc.',
+                        ),
+                        if (_fromAddressController.text.isNotEmpty)
+                          IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              setState(() {
+                                _fromAddressController.clear();
+                                _fromPoint = null;
+                                _fromAddressResults.clear();
+                              });
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
-                onChanged: (value) {
-                  setState(() {});
-                  _fromAddressDebounce?.cancel();
-                  _fromAddressDebounce = Timer(
-                    const Duration(milliseconds: 500),
-                    () {
-                      if (value.isNotEmpty) {
-                        _searchAddress(value, true);
-                      } else {
-                        setState(() {
-                          _fromAddressResults.clear();
-                        });
-                      }
-                    },
-                  );
-                },
+                onChanged: _onFromAddressInputChanged,
               ),
               const SizedBox(height: 12),
               TextField(
@@ -1175,35 +1337,43 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                   hintText: 'VD: Chợ Bến Thành, Quận 1, TP.HCM',
                   prefixIcon: const Icon(Icons.location_on, color: Colors.red),
                   border: const OutlineInputBorder(),
-                  suffixIcon: _toAddressController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: () {
-                            setState(() {
-                              _toAddressController.clear();
-                              _toPoint = null;
-                              _toAddressResults.clear();
-                            });
-                          },
-                        )
-                      : null,
+                  suffixIconConstraints: const BoxConstraints(
+                    minWidth: 44,
+                    minHeight: 44,
+                    maxWidth: 140,
+                  ),
+                  suffixIcon: SizedBox(
+                    width: _toAddressController.text.isNotEmpty ? 132 : 88,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        VoiceInputIconButton(
+                          controller: _toAddressController,
+                          tooltip: 'Nhập điểm đến bằng giọng nói',
+                          stopTooltip: 'Dừng nhập giọng nói',
+                          onTextChanged: _onToAddressInputChanged,
+                        ),
+                        TtsIconButton(
+                          controller: _toAddressController,
+                          tooltip: 'Đọc điểm đến',
+                          emptyMessage: 'Bạn chưa nhập điểm đến để đọc.',
+                        ),
+                        if (_toAddressController.text.isNotEmpty)
+                          IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              setState(() {
+                                _toAddressController.clear();
+                                _toPoint = null;
+                                _toAddressResults.clear();
+                              });
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
-                onChanged: (value) {
-                  setState(() {});
-                  _toAddressDebounce?.cancel();
-                  _toAddressDebounce = Timer(
-                    const Duration(milliseconds: 500),
-                    () {
-                      if (value.isNotEmpty) {
-                        _searchAddress(value, false);
-                      } else {
-                        setState(() {
-                          _toAddressResults.clear();
-                        });
-                      }
-                    },
-                  );
-                },
+                onChanged: _onToAddressInputChanged,
               ),
               const SizedBox(height: 8),
               Text(
@@ -1309,8 +1479,12 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                   IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () {
+                      if (_isSpeakingRouteGuide) {
+                        TextToSpeechService.instance.stop();
+                      }
                       setState(() {
                         _showFullRouteDetail = false;
+                        _isSpeakingRouteGuide = false;
                       });
                     },
                   ),
@@ -1365,6 +1539,27 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                         ),
                       ],
                     ),
+                  ),
+                  IconButton(
+                    tooltip: _isSpeakingRouteGuide
+                        ? 'Đang đọc hướng dẫn'
+                        : 'Đọc hướng dẫn di chuyển',
+                    onPressed: _isSpeakingRouteGuide
+                        ? null
+                        : () => _speakRouteGuidance(path),
+                    icon: _isSpeakingRouteGuide
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.record_voice_over_rounded),
+                  ),
+                  IconButton(
+                    tooltip: 'Dừng đọc hướng dẫn',
+                    onPressed:
+                        _isSpeakingRouteGuide ? _stopRouteGuidance : null,
+                    icon: const Icon(Icons.stop_circle_outlined),
                   ),
                 ],
               ),

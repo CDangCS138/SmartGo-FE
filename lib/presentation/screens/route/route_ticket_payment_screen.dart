@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/services/storage_service.dart';
+import 'package:smartgo/core/utils/open_external_url.dart';
 import 'package:smartgo/data/datasources/payment_remote_data_source.dart';
 import 'package:smartgo/data/models/payment_request_models.dart';
 import 'package:smartgo/data/models/payment_response_models.dart';
@@ -43,18 +44,8 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
         label: 'Vé tập', description: 'Gói 25 lượt đi', price: 157500),
   ];
 
-  static const List<String> _banks = [
-    'NCB',
-    'Vietcombank',
-    'VietinBank',
-    'BIDV',
-    'Techcombank',
-    'MB Bank',
-  ];
-
   int _selectedTicketIndex = 0;
   int _quantity = 1;
-  String _selectedBank = _banks.first;
   String _selectedProvider = _providerVnpay;
   bool _isSubmitting = false;
 
@@ -62,13 +53,18 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
   late final PaymentRemoteDataSource _paymentRemoteDataSource;
   final NumberFormat _currencyFormat = NumberFormat('#,###', 'vi_VN');
 
-  static const Map<String, String> _bankCodeMap = {
-    'NCB': 'NCB',
-    'Vietcombank': 'VCB',
-    'VietinBank': 'ICB',
-    'BIDV': 'BIDV',
-    'Techcombank': 'TCB',
-    'MB Bank': 'MB',
+  static const Map<String, ({String subtitle, IconData icon, Color color})>
+      _providerMeta = {
+    _providerVnpay: (
+      subtitle: 'Cổng thanh toán ngân hàng nội địa',
+      icon: Icons.account_balance_wallet_outlined,
+      color: Color(0xFF255DE8),
+    ),
+    _providerMomo: (
+      subtitle: 'Ví điện tử thanh toán nhanh',
+      icon: Icons.account_balance_outlined,
+      color: Color(0xFF8A1AF4),
+    ),
   };
 
   int get _totalAmount =>
@@ -221,36 +217,20 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
               scheme,
               title: 'Cổng thanh toán',
               icon: Icons.payments_outlined,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              child: Column(
                 children: [_providerVnpay, _providerMomo].map((provider) {
                   final selected = provider == _selectedProvider;
-                  return ChoiceChip(
-                    label: Text(provider),
-                    selected: selected,
-                    selectedColor: scheme.primary.withValues(alpha: 0.18),
-                    onSelected: (_) =>
-                        setState(() => _selectedProvider = provider),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildSectionCard(
-              scheme,
-              title: 'Ngân hàng thanh toán',
-              icon: Icons.account_balance,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _banks.map((bank) {
-                  final selected = bank == _selectedBank;
-                  return ChoiceChip(
-                    label: Text(bank),
-                    selected: selected,
-                    selectedColor: scheme.primary.withValues(alpha: 0.18),
-                    onSelected: (_) => setState(() => _selectedBank = bank),
+                  final meta = _providerMeta[provider]!;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _buildProviderCard(
+                      provider: provider,
+                      subtitle: meta.subtitle,
+                      icon: meta.icon,
+                      color: meta.color,
+                      selected: selected,
+                      onTap: () => setState(() => _selectedProvider = provider),
+                    ),
                   );
                 }).toList(),
               ),
@@ -258,27 +238,48 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
             const SizedBox(height: 20),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
                   colors: [Color(0xFF255DE8), Color(0xFF8A1AF4)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF255DE8).withValues(alpha: 0.35),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
                     'Tổng thanh toán',
-                    style: TextStyle(color: Colors.white70, fontSize: 18),
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Text(
                     _formatVnd(_totalAmount),
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 32,
+                      fontSize: 34,
                       fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Phương thức: $_selectedProvider',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -289,6 +290,9 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
                         backgroundColor: Colors.white,
                         foregroundColor: const Color(0xFF255DE8),
                         padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                       ),
                       onPressed: _isSubmitting ? null : _onProceedPayment,
                       icon: _isSubmitting
@@ -403,6 +407,78 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
     );
   }
 
+  Widget _buildProviderCard({
+    required String provider,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected
+              ? color.withValues(alpha: 0.1)
+              : scheme.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? color : scheme.outlineVariant,
+            width: selected ? 1.8 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    provider,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              selected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_off_rounded,
+              color: selected ? color : scheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildQuantityButton(
       {required IconData icon, required VoidCallback onTap}) {
     return InkWell(
@@ -449,7 +525,6 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
     });
 
     final selectedTicket = _ticketOptions[_selectedTicketIndex];
-    final bankCode = _bankCodeMap[_selectedBank] ?? 'NCB';
     final isMomo = _selectedProvider == _providerMomo;
 
     late VnpayCreatePaymentResponse createResponse;
@@ -460,7 +535,7 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
         orderDescription:
             'Thanh toan ${selectedTicket.label} tuyen ${widget.route.routeCode} x$_quantity',
         orderType: 'other',
-        bankCode: bankCode,
+        bankCode: null,
         locale: 'vn',
       );
 
@@ -481,6 +556,11 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
 
       await _openPaymentPage(paymentUri);
 
+      if (kIsWeb) {
+        // Web flow continues in the same tab and should return via callback route.
+        return;
+      }
+
       if (!mounted) return;
 
       await Navigator.of(context).push(
@@ -489,7 +569,7 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
             route: widget.route,
             ticketLabel: selectedTicket.label,
             quantity: _quantity,
-            selectedBank: _selectedBank,
+            selectedBank: _selectedProvider,
             totalAmount: _totalAmount,
             createResponse: createResponse,
             accessToken: accessToken,
@@ -519,13 +599,20 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
   }
 
   Future<void> _openPaymentPage(Uri paymentUri) async {
+    if (kIsWeb) {
+      // Redirect in the same tab so payment provider can return to callback directly.
+      final opened = await openExternalUrl(paymentUri, webTarget: '_self');
+      if (!opened) {
+        throw Exception('Không thể mở trang thanh toán $_selectedProvider');
+      }
+      return;
+    }
+
     try {
-      final opened = kIsWeb
-          ? await launchUrl(paymentUri, webOnlyWindowName: '_self')
-          : await launchUrl(
-              paymentUri,
-              mode: LaunchMode.externalApplication,
-            );
+      final opened = await launchUrl(
+        paymentUri,
+        mode: LaunchMode.externalApplication,
+      );
 
       if (!opened) {
         throw Exception('Không thể mở trang thanh toán $_selectedProvider');

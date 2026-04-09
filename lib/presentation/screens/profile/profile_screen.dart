@@ -13,6 +13,7 @@ import 'package:smartgo/data/models/users_models.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_bloc.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_event.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_state.dart';
+import 'package:smartgo/presentation/widgets/app_button.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -142,14 +143,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
         : name.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FBFF),
+      backgroundColor: scheme.surfaceContainerLowest,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
         title: const Text('Hồ sơ cá nhân'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go(AppRoutes.settings),
+          onPressed: () {
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+              return;
+            }
+            context.go(AppRoutes.home);
+          },
         ),
       ),
       body: ListView(
@@ -158,18 +163,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFFFF8E8), Color(0xFFF2E7C9)],
+              gradient: LinearGradient(
+                colors: [
+                  scheme.primaryContainer,
+                  scheme.primaryContainer.withValues(alpha: 0.72),
+                ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: const Color(0xFFD1B57A)),
+              border: Border.all(color: scheme.outlineVariant),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.08),
-                  blurRadius: 24,
-                  offset: const Offset(0, 8),
+                  color: scheme.primary.withValues(alpha: 0.16),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
                 ),
               ],
             ),
@@ -177,7 +185,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 CircleAvatar(
                   radius: 34,
-                  backgroundColor: const Color(0xFF0E1A2B),
+                  backgroundColor: scheme.primary,
                   backgroundImage:
                       (avatarUrl != null && avatarUrl.trim().isNotEmpty)
                           ? NetworkImage(avatarUrl)
@@ -185,8 +193,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: (avatarUrl == null || avatarUrl.trim().isEmpty)
                       ? Text(
                           initials,
-                          style: const TextStyle(
-                            color: Color(0xFFD4B06A),
+                          style: TextStyle(
+                            color: scheme.onPrimary,
                             fontWeight: FontWeight.w800,
                             fontSize: 20,
                           ),
@@ -200,17 +208,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     children: [
                       Text(
                         name,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
-                          color: Color(0xFF1A2535),
+                          color: scheme.onPrimaryContainer,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         email,
-                        style: const TextStyle(
-                          color: Color(0xFF556070),
+                        style: TextStyle(
+                          color: scheme.onPrimaryContainer,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -221,14 +229,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: scheme.surface,
                           borderRadius: BorderRadius.circular(100),
-                          border: Border.all(color: const Color(0xFFD1B57A)),
+                          border: Border.all(color: scheme.outlineVariant),
                         ),
                         child: Text(
                           role,
-                          style: const TextStyle(
-                            color: Color(0xFF1A2535),
+                          style: TextStyle(
+                            color: scheme.onSurface,
                             fontWeight: FontWeight.w700,
                             fontSize: 12,
                           ),
@@ -259,18 +267,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFF4F4),
-                border: Border.all(color: const Color(0xFFF5BDBD)),
+                color: scheme.errorContainer.withValues(alpha: 0.7),
+                border: Border.all(color: scheme.error.withValues(alpha: 0.32)),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline, color: Color(0xFFB33A3A)),
+                  Icon(Icons.info_outline, color: scheme.error),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       _profileError!,
-                      style: const TextStyle(color: Color(0xFF7C2A2A)),
+                      style: TextStyle(color: scheme.onErrorContainer),
                     ),
                   ),
                   TextButton(
@@ -283,8 +291,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
           const SizedBox(height: 12),
           _profileInfoCard(
-            title: 'Tuỳ chọn',
+            title: 'Quản lý tài khoản',
             rows: [
+              _actionTile(
+                icon: Icons.person_outline,
+                title: 'Thông tin cá nhân',
+                subtitle: 'Xem dữ liệu hồ sơ và trạng thái tài khoản',
+                onTap: () => _showFeatureInProgress('Thông tin cá nhân'),
+              ),
+              _actionTile(
+                icon: Icons.lock_outline,
+                title: 'Bảo mật tài khoản',
+                subtitle: 'Quản lý phiên đăng nhập và xác thực',
+                onTap: () => _showFeatureInProgress('Bảo mật tài khoản'),
+              ),
               _actionTile(
                 icon: Icons.settings_outlined,
                 title: 'Cài đặt',
@@ -301,31 +321,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF0E1A2B),
-              foregroundColor: const Color(0xFFD4B06A),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
+          AppButton(
+            text: 'Đăng xuất',
+            icon: Icons.logout,
+            backgroundColor: scheme.error,
+            textColor: scheme.onError,
             onPressed: () {
               context.read<AuthBloc>().add(const LogoutEvent());
             },
-            icon: const Icon(Icons.logout),
-            label: const Text(
-              'Đăng xuất',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Center(
-            child: Text(
-              'Profile Light Edition',
-              style: TextStyle(
-                color: scheme.onSurfaceVariant,
-                fontSize: 12,
-                letterSpacing: 0.4,
-              ),
-            ),
           ),
         ],
       ),
@@ -333,22 +336,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _profileInfoCard({required String title, required List<Widget> rows}) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surface,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE2E7EF)),
+        border: Border.all(color: scheme.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF1A2535),
+              color: scheme.onSurface,
             ),
           ),
           const SizedBox(height: 10),
@@ -359,6 +364,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _line(String k, String v) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -366,8 +373,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Expanded(
             child: Text(
               k,
-              style: const TextStyle(
-                color: Color(0xFF5B6677),
+              style: TextStyle(
+                color: scheme.onSurfaceVariant,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -376,8 +383,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Text(
               v,
               textAlign: TextAlign.right,
-              style: const TextStyle(
-                color: Color(0xFF1A2535),
+              style: TextStyle(
+                color: scheme.onSurface,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -393,21 +400,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String subtitle,
     required VoidCallback onTap,
   }) {
+    final scheme = Theme.of(context).colorScheme;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 9),
         child: Row(
           children: [
             Container(
-              width: 36,
-              height: 36,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
-                color: const Color(0xFFEDF2FF),
+                color: scheme.primaryContainer,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, color: const Color(0xFF22334D), size: 19),
+              child: Icon(icon, color: scheme.onPrimaryContainer, size: 19),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -416,24 +425,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF1A2535),
+                      color: scheme.onSurface,
                     ),
                   ),
+                  const SizedBox(height: 2),
                   Text(
                     subtitle,
-                    style: const TextStyle(
-                      color: Color(0xFF6D7888),
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
                       fontSize: 12,
                     ),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: Color(0xFF6D7888)),
+            Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showFeatureInProgress(String featureName) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$featureName sẽ được cập nhật trong phiên bản tới.'),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

@@ -15,6 +15,9 @@ import '../../presentation/screens/settings/language_settings_screen.dart';
 import '../../presentation/screens/users/users_admin_screen.dart';
 import '../../presentation/screens/profile/profile_screen.dart';
 import '../../presentation/screens/route/route_list_screen.dart';
+import '../../presentation/screens/route/payment_callback_screen.dart';
+import '../../presentation/screens/chatbot/chatbot_screen.dart';
+import '../../presentation/screens/chatbot/chatbot_admin_screen.dart';
 import '../../presentation/blocs/auth/auth_bloc.dart';
 import '../../presentation/blocs/auth/auth_state.dart';
 import 'app_routes.dart';
@@ -81,6 +84,43 @@ class AppRouter {
         builder: (context, state) => const ProfileScreen(),
       ),
       GoRoute(
+        path: AppRoutes.chatbot,
+        name: 'chatbot',
+        builder: (context, state) => const ChatbotScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.momoPaymentCallback,
+        name: 'momo-payment-callback',
+        builder: (context, state) => PaymentCallbackScreen(
+          provider: 'momo',
+          callbackParams: state.uri.queryParameters,
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.vnpayPaymentCallback,
+        name: 'vnpay-payment-callback',
+        builder: (context, state) => PaymentCallbackScreen(
+          provider: 'vnpay',
+          callbackParams: state.uri.queryParameters,
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.momoPaymentCallbackApiCompat,
+        name: 'momo-payment-callback-api-compat',
+        builder: (context, state) => PaymentCallbackScreen(
+          provider: 'momo',
+          callbackParams: state.uri.queryParameters,
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.vnpayPaymentCallbackApiCompat,
+        name: 'vnpay-payment-callback-api-compat',
+        builder: (context, state) => PaymentCallbackScreen(
+          provider: 'vnpay',
+          callbackParams: state.uri.queryParameters,
+        ),
+      ),
+      GoRoute(
         path: AppRoutes.settings,
         name: 'settings',
         builder: (context, state) => const SettingsScreen(),
@@ -100,6 +140,11 @@ class AppRouter {
             name: 'users-admin',
             builder: (context, state) => const UsersAdminScreen(),
           ),
+          GoRoute(
+            path: 'chatbot-admin',
+            name: 'chatbot-admin',
+            builder: (context, state) => const ChatbotAdminScreen(),
+          ),
         ],
       ),
     ],
@@ -110,12 +155,34 @@ class AppRouter {
     ),
   );
   String? _authGuard(BuildContext context, GoRouterState state) {
+    if (state.matchedLocation == AppRoutes.momoPaymentCallbackApiCompat) {
+      final query = state.uri.query;
+      return query.isEmpty
+          ? AppRoutes.momoPaymentCallback
+          : '${AppRoutes.momoPaymentCallback}?$query';
+    }
+
+    if (state.matchedLocation == AppRoutes.vnpayPaymentCallbackApiCompat) {
+      final query = state.uri.query;
+      return query.isEmpty
+          ? AppRoutes.vnpayPaymentCallback
+          : '${AppRoutes.vnpayPaymentCallback}?$query';
+    }
+
     final isAuthenticated = authBloc.state is AuthAuthenticated;
     final isLoginRoute = state.matchedLocation == AppRoutes.login;
     final isRegisterRoute = state.matchedLocation == AppRoutes.register;
+    final isPaymentCallbackRoute =
+        state.matchedLocation == AppRoutes.momoPaymentCallback ||
+            state.matchedLocation == AppRoutes.vnpayPaymentCallback ||
+            state.matchedLocation == AppRoutes.momoPaymentCallbackApiCompat ||
+            state.matchedLocation == AppRoutes.vnpayPaymentCallbackApiCompat;
 
     // If not authenticated and trying to access protected route, redirect to login
-    if (!isAuthenticated && !isLoginRoute && !isRegisterRoute) {
+    if (!isAuthenticated &&
+        !isLoginRoute &&
+        !isRegisterRoute &&
+        !isPaymentCallbackRoute) {
       return AppRoutes.login;
     }
 

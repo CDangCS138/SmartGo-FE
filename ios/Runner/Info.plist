@@ -43,6 +43,10 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SmartGo sử dụng microphone để nhập điểm đi, điểm đến và nội dung bằng giọng nói.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>SmartGo sử dụng nhận diện giọng nói để hỗ trợ người dùng nhập văn bản nhanh hơn.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>

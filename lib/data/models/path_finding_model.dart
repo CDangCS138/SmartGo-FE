@@ -76,12 +76,32 @@ class PathRequest {
     return {
       if (stationCode != null) 'stationCode': stationCode!.toJson(),
       if (coordinates != null) 'coordinates': coordinates!.toJson(),
-      'criteria': criteria,
+      'criteria': _normalizeRoutingCriteria(criteria),
       'numPaths': numPaths,
       'maxTransfers': maxTransfers,
       if (timeOfDay != null) 'timeOfDay': timeOfDay,
       'congestionAware': congestionAware,
     };
+  }
+}
+
+String _normalizeRoutingCriteria(String raw) {
+  final value = raw.trim().toLowerCase();
+
+  switch (value) {
+    case 'time':
+    case 'fastest':
+      return 'time';
+    case 'cost':
+    case 'cheapest':
+      return 'cost';
+    case 'distance':
+    case 'shortest':
+      return 'distance';
+    case 'balanced':
+      return 'balanced';
+    default:
+      return value;
   }
 }
 

@@ -5,6 +5,7 @@ class AppButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final bool isLoading;
   final bool isOutlined;
+  final IconData? icon;
   final Color? backgroundColor;
   final Color? textColor;
   final double? width;
@@ -17,6 +18,7 @@ class AppButton extends StatelessWidget {
     this.onPressed,
     this.isLoading = false,
     this.isOutlined = false,
+    this.icon,
     this.backgroundColor,
     this.textColor,
     this.width,
@@ -63,6 +65,19 @@ class AppButton extends StatelessWidget {
         child: CircularProgressIndicator(strokeWidth: 2),
       );
     }
-    return Text(text);
+
+    final child = Text(text);
+    if (icon == null) {
+      return child;
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: 8),
+        child,
+      ],
+    );
   }
 }

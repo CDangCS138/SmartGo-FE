@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:smartgo/core/utils/open_external_url.dart';
 import 'package:smartgo/data/datasources/payment_remote_data_source.dart';
 import 'package:smartgo/data/models/payment_response_models.dart';
 import 'package:smartgo/domain/entities/route.dart';
@@ -311,7 +312,7 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
                   'Mã ${widget.paymentProvider}', returnResponse.transactionNo),
               _detailRow('Số tiền', _formatVnd(widget.totalAmount)),
               _detailRow('Mô tả', returnResponse.orderInfo),
-              _detailRow('Ngân hàng', widget.selectedBank),
+              _detailRow('Kênh thanh toán', widget.selectedBank),
               _detailRow('Thời gian', returnResponse.payDate),
               _detailRow('Mã phản hồi', returnResponse.responseCode),
             ],
@@ -418,13 +419,27 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
     }
 
     bool opened;
+    if (kIsWeb) {
+      // Reopen in the same tab so provider callback can continue current flow.
+      opened = await openExternalUrl(paymentUri, webTarget: '_self');
+
+      if (!mounted || opened) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:
+              Text('Không thể mở trang thanh toán ${widget.paymentProvider}.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     try {
-      opened = kIsWeb
-          ? await launchUrl(paymentUri, webOnlyWindowName: '_self')
-          : await launchUrl(
-              paymentUri,
-              mode: LaunchMode.externalApplication,
-            );
+      opened = await launchUrl(
+        paymentUri,
+        mode: LaunchMode.externalApplication,
+      );
     } on MissingPluginException {
       opened = await launchUrl(
         paymentUri,

@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import '../../../core/platform/geolocation.dart';
+import '../../widgets/tts_icon_button.dart';
+import '../../widgets/voice_input_icon_button.dart';
 
 /// Map Screen - Redesigned
 class MapScreen extends StatefulWidget {
@@ -50,7 +52,7 @@ class _MapScreenState extends State<MapScreen> {
     super.dispose();
   }
 
-  void _getUserLocation() async {
+  Future<void> _getUserLocation() async {
     if (!mounted) return;
     setState(() => _isLoadingLocation = true);
 
@@ -76,6 +78,30 @@ class _MapScreenState extends State<MapScreen> {
       if (!mounted) return;
       setState(() => _isLoadingLocation = false);
     }
+  }
+
+  Future<void> _focusOnCurrentLocation() async {
+    if (_isLoadingLocation) {
+      return;
+    }
+
+    if (_userLocation == null) {
+      await _getUserLocation();
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final position = _userLocation;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không lấy được vị trí hiện tại.')),
+      );
+      return;
+    }
+
+    _mapController.move(position, 16);
   }
 
   void _onSearchChanged() {
@@ -521,9 +547,13 @@ out body;
             const SizedBox(height: 16),
             Wrap(
               spacing: 8,
-              children: [1.0, 3.0, 5.0, 10.0].map((radius) {
+              runSpacing: 8,
+              children: [0.5, 1.0, 2.0, 3.0].map((radius) {
+                final label = radius < 1
+                    ? '${(radius * 1000).toInt()}m'
+                    : '${radius.toInt()}km';
                 return ChoiceChip(
-                  label: Text('${radius.toInt()}km'),
+                  label: Text(label),
                   selected: _nearbyRadius == radius,
                   onSelected: (selected) {
                     if (selected) {
@@ -681,68 +711,97 @@ out body;
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => StatefulBuilder(
-        builder: (context, setSearchState) => Container(
-          height: MediaQuery.of(context).size.height * 0.75,
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              const Text('Chọn trạm',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              TextField(
-                controller: searchController,
-                decoration: InputDecoration(
-                  hintText: 'Tìm kiếm...',
-                  prefixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                onChanged: (query) {
-                  setSearchState(() {
-                    filteredStops = query.isEmpty
-                        ? List<Map<String, dynamic>>.from(_busStopsData)
-                        : _busStopsData.where((stop) {
-                            final name = (stop['name'] as String).toLowerCase();
-                            return name.contains(query.toLowerCase());
-                          }).toList();
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: filteredStops.length,
-                  itemBuilder: (context, index) {
-                    final stop = filteredStops[index];
-                    final isSelected =
-                        _selectedRouteStops.any((s) => s['id'] == stop['id']);
+        builder: (context, setSearchState) {
+          void updateSearchResults(String query) {
+            setSearchState(() {
+              filteredStops = query.isEmpty
+                  ? List<Map<String, dynamic>>.from(_busStopsData)
+                  : _busStopsData.where((stop) {
+                      final name = (stop['name'] as String).toLowerCase();
+                      return name.contains(query.toLowerCase());
+                    }).toList();
+            });
+          }
 
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        leading: Icon(Icons.directions_bus,
-                            color: isSelected ? Colors.green : Colors.blue),
-                        title: Text(stop['name'] as String),
-                        subtitle: Text(stop['ref'] as String),
-                        trailing: isSelected
-                            ? const Icon(Icons.check_circle,
-                                color: Colors.green)
-                            : null,
-                        onTap: () {
-                          if (!isSelected) {
-                            setState(() => _selectedRouteStops.add(stop));
-                          }
-                          Navigator.pop(context);
-                          _showRouteBuilder();
-                        },
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.75,
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                const Text('Chọn trạm',
+                    style:
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Tìm kiếm...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIconConstraints: const BoxConstraints(
+                      minWidth: 44,
+                      minHeight: 44,
+                      maxWidth: 100,
+                    ),
+                    suffixIcon: SizedBox(
+                      width: 88,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          VoiceInputIconButton(
+                            controller: searchController,
+                            tooltip: 'Nhập từ khóa bằng giọng nói',
+                            stopTooltip: 'Dừng nhập giọng nói',
+                            onTextChanged: updateSearchResults,
+                          ),
+                          TtsIconButton(
+                            controller: searchController,
+                            tooltip: 'Đọc từ khóa tìm kiếm',
+                            emptyMessage: 'Bạn chưa nhập từ khóa để đọc.',
+                          ),
+                        ],
                       ),
-                    );
-                  },
+                    ),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onChanged: updateSearchResults,
                 ),
-              ),
-            ],
-          ),
-        ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: filteredStops.length,
+                    itemBuilder: (context, index) {
+                      final stop = filteredStops[index];
+                      final isSelected =
+                          _selectedRouteStops.any((s) => s['id'] == stop['id']);
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          leading: Icon(Icons.directions_bus,
+                              color: isSelected ? Colors.green : Colors.blue),
+                          title: Text(stop['name'] as String),
+                          subtitle: Text(stop['ref'] as String),
+                          trailing: isSelected
+                              ? const Icon(Icons.check_circle,
+                                  color: Colors.green)
+                              : null,
+                          onTap: () {
+                            if (!isSelected) {
+                              setState(() => _selectedRouteStops.add(stop));
+                            }
+                            Navigator.pop(context);
+                            _showRouteBuilder();
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -1014,15 +1073,41 @@ out body;
                       decoration: InputDecoration(
                         hintText: 'Tìm trạm...',
                         prefixIcon: const Icon(Icons.search),
-                        suffixIcon: _searchController.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() => _searchResults = []);
+                        suffixIconConstraints: const BoxConstraints(
+                          minWidth: 44,
+                          minHeight: 44,
+                          maxWidth: 140,
+                        ),
+                        suffixIcon: SizedBox(
+                          width: _searchController.text.isNotEmpty ? 132 : 88,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              VoiceInputIconButton(
+                                controller: _searchController,
+                                tooltip: 'Nhập từ khóa tìm trạm bằng giọng nói',
+                                stopTooltip: 'Dừng nhập giọng nói',
+                                onTextChanged: (_) {
+                                  setState(() {});
+                                  _onSearchChanged();
                                 },
-                              )
-                            : null,
+                              ),
+                              TtsIconButton(
+                                controller: _searchController,
+                                tooltip: 'Đọc từ khóa tìm trạm',
+                                emptyMessage: 'Bạn chưa nhập tên trạm để đọc.',
+                              ),
+                              if (_searchController.text.isNotEmpty)
+                                IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() => _searchResults = []);
+                                  },
+                                ),
+                            ],
+                          ),
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide.none,
@@ -1067,6 +1152,18 @@ out body;
             right: 16,
             child: Row(
               children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed:
+                        _isLoadingLocation ? null : _focusOnCurrentLocation,
+                    icon: const Icon(Icons.my_location),
+                    label: const Text('Vị trí tôi'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: _isLoading ? null : _showNearbyDialog,

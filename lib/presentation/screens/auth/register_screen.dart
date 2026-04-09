@@ -5,10 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:math';
+import '../../../core/utils/open_external_url.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/auth/auth_event.dart';
 import '../../blocs/auth/auth_state.dart';
+import '../../widgets/voice_input_icon_button.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -114,63 +116,88 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _handleGoogleOAuth() async {
-    final state = _generateOAuthState();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_googleOAuthStateStorageKey, state);
+    try {
+      final state = _generateOAuthState();
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_googleOAuthStateStorageKey, state);
+      } catch (_) {
+        // Continue OAuth even if local storage is unavailable.
+      }
 
-    final authUri = Uri.parse(
-      'https://smart-go.onrender.com/api/v1/auth/google?state=$state',
-    );
-
-    if (kIsWeb) {
-      await launchUrl(authUri, webOnlyWindowName: '_self');
-      return;
-    }
-
-    final opened = await launchUrl(
-      authUri,
-      mode: LaunchMode.externalApplication,
-    );
-
-    if (!opened || !mounted) {
-      return;
-    }
-
-    final callbackInput = await _showGoogleCallbackInputDialog();
-    if (!mounted || callbackInput == null || callbackInput.trim().isEmpty) {
-      return;
-    }
-
-    final callbackParams = _extractGoogleCallbackParams(callbackInput);
-    final authCode = callbackParams?['authCode'];
-    final callbackState = callbackParams?['state'];
-
-    if (authCode == null || callbackState == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Không đọc được auth_code hoặc state từ URL callback'),
-          backgroundColor: Colors.red,
-        ),
+      final authUri = Uri.parse(
+        'https://smart-go.onrender.com/api/v1/auth/google?state=$state',
       );
-      return;
-    }
 
-    if (callbackState != state) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('State không khớp, vui lòng thử đăng nhập Google lại'),
-          backgroundColor: Colors.red,
-        ),
+      if (kIsWeb) {
+        // In debug, stay in the same tab to inspect OAuth network requests.
+        // In production, open a new tab to avoid replacing the app tab.
+        const webTarget = kDebugMode ? '_self' : '_blank';
+        debugPrint('Google OAuth URL: $authUri (target: $webTarget)');
+        await openExternalUrl(authUri, webTarget: webTarget);
+        return;
+      }
+
+      final opened = await launchUrl(
+        authUri,
+        mode: LaunchMode.externalApplication,
       );
-      return;
-    }
 
-    context.read<AuthBloc>().add(
-          GoogleOAuthExchangeEvent(
-            authCode: authCode,
-            state: callbackState,
+      if (!opened || !mounted) {
+        return;
+      }
+
+      final callbackInput = await _showGoogleCallbackInputDialog();
+      if (!mounted || callbackInput == null || callbackInput.trim().isEmpty) {
+        return;
+      }
+
+      final callbackParams = _extractGoogleCallbackParams(callbackInput);
+      final authCode = callbackParams?['authCode'];
+      final callbackState = callbackParams?['state'];
+
+      if (authCode == null || callbackState == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Không đọc được auth_code hoặc state từ URL callback'),
+            backgroundColor: Colors.red,
           ),
         );
+        return;
+      }
+
+      if (callbackState != state) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('State không khớp, vui lòng thử đăng nhập Google lại'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      context.read<AuthBloc>().add(
+            GoogleOAuthExchangeEvent(
+              authCode: authCode,
+              state: callbackState,
+            ),
+          );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Không thể khởi tạo đăng nhập Google. Vui lòng thử lại. ($e)',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _tryHandleGoogleOAuthCallbackFromCurrentUrl() async {
@@ -189,9 +216,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     _isHandlingOAuthCallback = true;
 
-    final prefs = await SharedPreferences.getInstance();
-    final expectedState = prefs.getString(_googleOAuthStateStorageKey);
-    await prefs.remove(_googleOAuthStateStorageKey);
+    String? expectedState;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      expectedState = prefs.getString(_googleOAuthStateStorageKey);
+      await prefs.remove(_googleOAuthStateStorageKey);
+    } catch (_) {
+      expectedState = null;
+    }
 
     if (!mounted) {
       return;
@@ -236,8 +268,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
             controller: controller,
             autofocus: true,
             maxLines: 3,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: 'Dán URL chứa auth_code và state',
+              suffixIcon: VoiceInputIconButton(
+                controller: controller,
+                tooltip: 'Nhập URL callback bằng giọng nói',
+                stopTooltip: 'Dừng nhập giọng nói',
+              ),
             ),
           ),
           actions: [
@@ -356,6 +393,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         hintText: 'Nhập họ và tên',
                         filled: true,
                         fillColor: Colors.grey[100],
+                        suffixIcon: VoiceInputIconButton(
+                          controller: _nameController,
+                          tooltip: 'Nhập họ tên bằng giọng nói',
+                          stopTooltip: 'Dừng nhập giọng nói',
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                           borderSide: BorderSide.none,
@@ -397,13 +439,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                           child: const Icon(Icons.email, color: Colors.white),
                         ),
-                        suffixIcon: Container(
-                          margin: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(6),
+                        suffixIconConstraints: const BoxConstraints(
+                          minWidth: 44,
+                          minHeight: 44,
+                          maxWidth: 132,
+                        ),
+                        suffixIcon: SizedBox(
+                          width: 116,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              VoiceInputIconButton(
+                                controller: _emailController,
+                                tooltip: 'Nhập email bằng giọng nói',
+                                stopTooltip: 'Dừng nhập giọng nói',
+                                onTextChanged: (value) {
+                                  setState(() {
+                                    _isEmailInput = value.contains('@');
+                                  });
+                                },
+                              ),
+                              Container(
+                                margin: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[300],
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child:
+                                    const Icon(Icons.phone, color: Colors.grey),
+                              ),
+                            ],
                           ),
-                          child: const Icon(Icons.phone, color: Colors.grey),
                         ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),

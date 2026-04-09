@@ -63,7 +63,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
                 accessToken: tokens.accessToken,
               ));
             } else {
-              emit(AuthError(
+              emit(const AuthError(
                   message:
                       'Đăng nhập thành công nhưng không thể lấy thông tin người dùng'));
             }
@@ -234,40 +234,46 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     emit(const AuthLoading());
 
-    final result = await authRepository.loginWithGoogle(
-      authCode: event.authCode,
-      state: event.state,
-    );
+    try {
+      final result = await authRepository.loginWithGoogle(
+        authCode: event.authCode,
+        state: event.state,
+      );
 
-    await result.fold(
-      (failure) async {
-        emit(AuthError(message: failure.message));
-      },
-      (tokens) async {
-        final userResult = await getCurrentUserUseCase();
-        await userResult.fold(
-          (failure) async {
-            final cachedUser = authRepository.getCachedUser();
-            if (cachedUser != null) {
+      await result.fold(
+        (failure) async {
+          emit(AuthError(message: failure.message));
+        },
+        (tokens) async {
+          final userResult = await getCurrentUserUseCase();
+          await userResult.fold(
+            (failure) async {
+              final cachedUser = authRepository.getCachedUser();
+              if (cachedUser != null) {
+                emit(AuthAuthenticated(
+                  user: cachedUser,
+                  accessToken: tokens.accessToken,
+                ));
+              } else {
+                emit(const AuthError(
+                  message:
+                      'Đăng nhập Google thành công nhưng không thể lấy thông tin người dùng',
+                ));
+              }
+            },
+            (user) async {
               emit(AuthAuthenticated(
-                user: cachedUser,
+                user: user,
                 accessToken: tokens.accessToken,
               ));
-            } else {
-              emit(AuthError(
-                message:
-                    'Đăng nhập Google thành công nhưng không thể lấy thông tin người dùng',
-              ));
-            }
-          },
-          (user) async {
-            emit(AuthAuthenticated(
-              user: user,
-              accessToken: tokens.accessToken,
-            ));
-          },
-        );
-      },
-    );
+            },
+          );
+        },
+      );
+    } catch (_) {
+      emit(const AuthError(
+        message: 'Đăng nhập Google gặp lỗi hệ thống. Vui lòng thử lại.',
+      ));
+    }
   }
 }

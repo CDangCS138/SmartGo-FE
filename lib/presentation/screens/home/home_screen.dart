@@ -1,8 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+
 import '../../../core/routes/app_routes.dart';
+import '../../../domain/entities/route.dart';
+import '../../../domain/entities/station.dart';
+import '../../blocs/auth/auth_bloc.dart';
+import '../../blocs/auth/auth_state.dart';
+import '../../blocs/route/route_bloc.dart';
+import '../../blocs/route/route_event.dart';
+import '../../blocs/route/route_state.dart';
+import '../../blocs/station/station_bloc.dart';
+import '../../blocs/station/station_event.dart';
+import '../../blocs/station/station_state.dart';
+import 'widgets/action_buttons.dart';
+import 'widgets/appear_motion.dart';
+import 'widgets/header_card.dart';
+import 'widgets/home_navigation_bar.dart';
+import 'widgets/live_map_card.dart';
+import 'widgets/route_card.dart';
+import 'widgets/search_pill_bar.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,816 +29,230 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _searchController = TextEditingController();
-
-  // Mock data
-  final List<Map<String, dynamic>> _favoriteRoutes = [
-    {
-      'from': 'Nhà → Văn phòng',
-      'fromDetail': 'Bến Thành → Quận 7',
-      'duration': '25 phút',
-      'usageCount': '15 lần dùng',
-      'isFavorite': true,
-    },
-    {
-      'from': 'Nhà → Văn phòng',
-      'fromDetail': 'Bến Thành → Quận 7',
-      'duration': '25 phút',
-      'usageCount': '15 lần dùng',
-      'isFavorite': true,
-    },
-  ];
-
-  final List<Map<String, dynamic>> _upcomingBuses = [
-    {
-      'number': '50',
-      'name': 'Đại học Quốc gia',
-      'code': 'BUS-001',
-      'times': ['3 phút', '17 phút', '32 phút'],
-      'status': 'normal', // normal, delay, early
-      'type': 'bus',
-    },
-    {
-      'number': '52',
-      'name': 'Bến Thành',
-      'code': 'BUS-052',
-      'times': ['7 phút', '22 phút', '37 phút'],
-      'status': 'delay',
-      'type': 'bus',
-      'delay': '+5p',
-    },
-    {
-      'number': 'M1',
-      'name': 'Suối Tiên',
-      'code': 'METRO-101',
-      'times': ['7 phút', '22 phút', '37 phút'],
-      'status': 'normal',
-      'type': 'metro',
-      'delay': '-2p',
-    },
-    {
-      'number': 'E153',
-      'name': 'Khu Công nghệ cao',
-      'code': 'EBUS-153',
-      'times': ['7 phút', '22 phút', '37 phút'],
-      'status': 'delay',
-      'type': 'ebus',
-      'delay': '+5p',
-    },
-    {
-      'number': 'F3',
-      'name': 'Bình Khánh',
-      'code': 'FERRY-03',
-      'times': ['3 phút', '17 phút', '32 phút'],
-      'status': 'normal',
-      'type': 'ferry',
-    },
-  ];
-
   @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshHomeData(initialLoad: true);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      backgroundColor: scheme.primary,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Chào buổi sáng,',
-                            style: TextStyle(
-                              fontSize: 20,
-                              color: Colors.white,
-                            ),
-                          ),
-                          Text(
-                            'Người dùng',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.notifications_outlined,
-                                color: Colors.white),
-                            onPressed: () {},
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.person_outline,
-                                color: Colors.white),
-                            onPressed: () => context.go(AppRoutes.settings),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Sẵn sàng cho hành trình của bạn?',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white70,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+    final authState = context.watch<AuthBloc>().state;
+    final routeState = context.watch<RouteBloc>().state;
+    final stationState = context.watch<StationBloc>().state;
 
-                  // Search Bar
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
+    final greetingName =
+        authState is AuthAuthenticated ? authState.user.name : 'Super Admin';
+
+    final routes = _extractRoutes(routeState);
+    final activeStations = stationState is StationLoaded
+        ? stationState.stations
+            .where((s) => s.status == StationStatus.ACTIVE)
+            .toList()
+        : const <Station>[];
+
+    return Scaffold(
+      backgroundColor: scheme.surfaceContainerLowest,
+      body: SafeArea(
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  AppearMotion(
+                    delay: const Duration(milliseconds: 20),
+                    child: HeaderCard(
+                      title: 'Xin chào, $greetingName',
+                      subtitle:
+                          'Theo dõi vận hành thông minh, tối ưu lộ trình theo thời gian thực.',
+                      routesCount: routes.length,
+                      stationsCount: activeStations.length,
+                      onNotificationTap: () {},
+                      onProfileTap: () => context.push(AppRoutes.profile),
                     ),
-                    child: TextField(
-                      controller: _searchController,
-                      decoration: const InputDecoration(
-                        hintText: 'Bạn muốn đi đâu?',
-                        prefixIcon: Icon(Icons.search),
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
-                      ),
+                  ),
+                  const SizedBox(height: 20),
+                  AppearMotion(
+                    delay: const Duration(milliseconds: 80),
+                    child: SearchPillBar(
+                      hint: 'Tìm điểm đi, điểm đến hoặc mã trạm...',
                       onTap: () => context.go(AppRoutes.routePlanning),
                     ),
                   ),
-
+                  const SizedBox(height: 16),
+                  AppearMotion(
+                    delay: const Duration(milliseconds: 120),
+                    child: ActionButtons(
+                      onPrimaryTap: () => context.go(AppRoutes.pathFindingDemo),
+                      onSecondaryTap: () => context.go(AppRoutes.routePlanning),
+                    ),
+                  ),
                   const SizedBox(height: 12),
-
-                  // Quick Actions
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () =>
-                              context.go(AppRoutes.pathFindingDemo),
-                          icon: const Icon(Icons.route),
-                          label: const Text('Tìm đường A*'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: scheme.surface,
-                            foregroundColor: scheme.primary,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => context.go(AppRoutes.routePlanning),
-                          icon: const Icon(Icons.navigation),
-                          label: const Text('Lập kế hoạch'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: scheme.surface,
-                            foregroundColor: scheme.primary,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ),
-                    ],
+                  AppearMotion(
+                    delay: const Duration(milliseconds: 145),
+                    child: FilledButton.tonalIcon(
+                      onPressed: () => context.go(AppRoutes.chatbot),
+                      icon: const Icon(Icons.smart_toy_outlined),
+                      label: const Text('Hỏi SmartGo AI Assistant'),
+                    ),
                   ),
-                ],
-              ),
-            ),
-
-            // Content
-            Expanded(
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(24),
-                    topRight: Radius.circular(24),
+                  const SizedBox(height: 20),
+                  AppearMotion(
+                    delay: const Duration(milliseconds: 170),
+                    child: LiveMapCard(
+                      stations: activeStations,
+                      onTapViewAll: () => context.go(AppRoutes.liveMap),
+                    ),
                   ),
-                ),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Live Map Preview
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Bản đồ trực tiếp',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                  const SizedBox(height: 28),
+                  _buildSectionHeader(
+                    title: 'Tuyến đang hoạt động',
+                    actionText: 'Xem tất cả',
+                    onTap: () => context.go(AppRoutes.routes),
+                  ),
+                  const SizedBox(height: 14),
+                  if (routes.isEmpty)
+                    AppearMotion(
+                      delay: const Duration(milliseconds: 210),
+                      child: _buildEmptyState(
+                        title: 'Chưa có dữ liệu tuyến',
+                        subtitle:
+                            'Hệ thống đang đồng bộ dữ liệu. Vui lòng thử lại sau.',
+                      ),
+                    )
+                  else
+                    ...routes.take(8).toList().asMap().entries.map(
+                          (entry) => AppearMotion(
+                            delay:
+                                Duration(milliseconds: 220 + (entry.key * 24)),
+                            child: RouteCard(
+                              route: entry.value,
+                              onTap: () => context.go(AppRoutes.routes),
                             ),
                           ),
-                          TextButton(
-                            onPressed: () => context.go(AppRoutes.liveMap),
-                            child: const Text('Xem toàn bộ'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      _buildMapPreview(),
-
-                      const SizedBox(height: 24),
-
-                      // Routes Section
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Tuyến xe buýt',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () => context.go(AppRoutes.routes),
-                            child: const Text('Xem tất cả'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      _buildRoutesPreview(),
-
-                      const SizedBox(height: 24),
-
-                      // Favorite Routes
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Tuyến yêu thích',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () {},
-                            child: const Text('Xem tất cả'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      ..._favoriteRoutes
-                          .map((route) => _buildFavoriteRoute(route)),
-
-                      const SizedBox(height: 24),
-
-                      // Upcoming Buses
-                      const Text(
-                        'Xe sắp đến',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      _buildNearestStation(),
-                      const SizedBox(height: 16),
-                      ..._upcomingBuses.map((bus) => _buildBusItem(bus)),
-
-                      const SizedBox(height: 16),
-                      Center(
-                        child: Text(
-                          'Dữ liệu cập nhật mỗi 30 giây',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          'Chính xác đến ±2 phút',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 12),
+                  AppearMotion(
+                    delay: const Duration(milliseconds: 260),
+                    child: OutlinedButton.icon(
+                      onPressed: _refreshHomeData,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Làm mới dữ liệu'),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 20),
+                ]),
               ),
             ),
           ],
         ),
       ),
-      bottomNavigationBar: _buildBottomNav(),
-    );
-  }
-
-  Widget _buildMapPreview() {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      height: 200,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Stack(
-          children: [
-            FlutterMap(
-              options: const MapOptions(
-                initialCenter: LatLng(10.8231, 106.6297),
-                initialZoom: 13,
-                interactionOptions: InteractionOptions(
-                  flags: InteractiveFlag.none,
-                ),
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                ),
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: const LatLng(10.8231, 106.6297),
-                      width: 30,
-                      height: 30,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: scheme.secondary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.directions_bus,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                    ),
-                    Marker(
-                      point: const LatLng(10.8331, 106.6397),
-                      width: 30,
-                      height: 30,
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Colors.green,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.directions_bus,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            Positioned(
-              bottom: 8,
-              right: 8,
-              child: Text(
-                '© OpenStreetMap contributors',
-                style: TextStyle(
-                  fontSize: 8,
-                  color: Colors.grey.shade600,
-                  backgroundColor: Colors.white.withValues(alpha: 0.7),
-                ),
-              ),
-            ),
-          ],
-        ),
+      bottomNavigationBar: HomeNavigationBar(
+        currentIndex: 0,
+        onDestinationSelected: (index) {
+          if (index == 0) {
+            return;
+          }
+          if (index == 1) {
+            context.go(AppRoutes.routePlanning);
+            return;
+          }
+          context.go(AppRoutes.liveMap);
+        },
       ),
     );
   }
 
-  Widget _buildFavoriteRoute(Map<String, dynamic> route) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.shade100,
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.star, color: Colors.amber, size: 24),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  route['from'],
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  route['fromDetail'],
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                route['duration'],
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                route['usageCount'],
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 8),
-          const Icon(Icons.chevron_right, color: Colors.grey),
-        ],
-      ),
-    );
+  List<BusRoute> _extractRoutes(RouteState state) {
+    if (state is RouteLoaded) {
+      return state.routes;
+    }
+    if (state is RouteLoadingMore) {
+      return state.currentRoutes;
+    }
+    return const <BusRoute>[];
   }
 
-  Widget _buildNearestStation() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.near_me, size: 20),
-          const SizedBox(width: 8),
-          const Text(
-            'Thời gian xe đến',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const Spacer(),
-          Text(
-            'Trạm gần bạn nhất',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(width: 4),
-          const Text(
-            'Cập nhật 22:56',
-            style: TextStyle(
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.refresh, size: 20),
-            onPressed: () {},
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-        ],
-      ),
-    );
-  }
+  void _refreshHomeData({bool initialLoad = false}) {
+    final routeBloc = context.read<RouteBloc>();
+    final stationBloc = context.read<StationBloc>();
 
-  Widget _buildBusItem(Map<String, dynamic> bus) {
-    final scheme = Theme.of(context).colorScheme;
-    Color getTypeColor() {
-      switch (bus['type']) {
-        case 'metro':
-          return scheme.primary;
-        case 'ferry':
-          return scheme.primary;
-        case 'ebus':
-          return scheme.secondary;
-        default:
-          return scheme.secondary;
+    if (initialLoad) {
+      if (routeBloc.state is! RouteLoaded &&
+          routeBloc.state is! RouteLoading &&
+          routeBloc.state is! RouteLoadingMore) {
+        routeBloc.add(const FetchAllRoutesEvent(page: 1, limit: 20));
       }
-    }
 
-    IconData getTypeIcon() {
-      switch (bus['type']) {
-        case 'metro':
-          return Icons.train;
-        case 'ferry':
-          return Icons.directions_boat;
-        default:
-          return Icons.directions_bus;
+      if (stationBloc.state is! StationLoaded &&
+          stationBloc.state is! StationLoading) {
+        stationBloc.add(const FetchAllStationsEvent(page: 1, limit: 50));
       }
+      return;
     }
 
-    Color getStatusColor() {
-      if (bus['status'] == 'delay') return Colors.orange;
-      return Colors.green;
-    }
+    routeBloc.add(const RefreshRoutesEvent());
+    stationBloc
+        .add(const FetchAllStationsEvent(page: 1, limit: 50, refresh: true));
+  }
 
-    String getStatusText() {
-      if (bus['status'] == 'delay') return 'Chậm <10p';
-      return 'Đúng giờ';
-    }
+  Widget _buildSectionHeader({
+    required String title,
+    required String actionText,
+    required VoidCallback onTap,
+  }) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Row(
+      children: [
+        Text(
+          title,
+          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const Spacer(),
+        TextButton(
+          onPressed: onTap,
+          child: Text(actionText),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState({
+    required String title,
+    required String subtitle,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: scheme.outlineVariant),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: getTypeColor(),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              getTypeIcon(),
-              color: Colors.white,
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      bus['number'],
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (bus['type'] == 'ebus') ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.green,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text(
-                          'Điện',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  bus['name'],
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey.shade700,
-                  ),
-                ),
-                Text(
-                  bus['code'],
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey.shade500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.schedule, size: 14),
-                  const SizedBox(width: 4),
-                  Text(
-                    bus['times'][0],
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    ', ${bus['times'][1]}, ${bus['times'][2]}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: getStatusColor(),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    getStatusText(),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                  if (bus['delay'] != null) ...[
-                    const SizedBox(width: 4),
-                    const Icon(Icons.warning_amber,
-                        size: 14, color: Colors.orange),
-                    Text(
-                      bus['delay'],
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.orange,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBottomNav() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.shade300,
-            blurRadius: 8,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildNavItem(Icons.home, 'Trang chủ', true),
-              _buildNavItem(Icons.map_outlined, 'Lập kế hoạch', false, () {
-                context.go(AppRoutes.routePlanning);
-              }),
-              _buildNavItem(Icons.layers_outlined, 'Theo dõi trực tiếp', false,
-                  () {
-                context.go(AppRoutes.liveMap);
-              }),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavItem(IconData icon, String label, bool isActive,
-      [VoidCallback? onTap]) {
-    return InkWell(
-      onTap: onTap,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            icon,
-            color: isActive ? Theme.of(context).colorScheme.primary : Colors.grey,
-            size: 28,
-          ),
-          const SizedBox(height: 4),
           Text(
-            label,
+            title,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
             style: TextStyle(
-              fontSize: 12,
-              color: isActive ? Theme.of(context).colorScheme.primary : Colors.grey,
-              fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+              color: scheme.onSurfaceVariant,
+              fontSize: 13,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRoutesPreview() {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            scheme.primary.withValues(alpha: 0.1),
-            scheme.primary.withValues(alpha: 0.05),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: scheme.primary.withValues(alpha: 0.2),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: scheme.primary,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              Icons.directions_bus,
-              color: scheme.onPrimary,
-              size: 32,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Khám phá tuyến xe buýt',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: scheme.primary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Xem chi tiết các tuyến và trạm dừng',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[700],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(
-            Icons.arrow_forward_ios,
-            color: scheme.primary,
-            size: 20,
           ),
         ],
       ),

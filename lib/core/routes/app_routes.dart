@@ -15,4 +15,12 @@ class AppRoutes {
   static const String themeSettings = '/settings/theme';
   static const String languageSettings = '/settings/language';
   static const String profile = '/profile';
+  static const String chatbot = '/chatbot';
+  static const String chatbotAdmin = '/settings/chatbot-admin';
+  static const String momoPaymentCallback = '/payment/momo-callback';
+  static const String vnpayPaymentCallback = '/payment/vnpay-callback';
+  static const String momoPaymentCallbackApiCompat =
+      '/api/v1/payments/momo/return';
+  static const String vnpayPaymentCallbackApiCompat =
+      '/api/v1/payments/vnpay/return';
 }

@@ -137,6 +137,8 @@ class PathMetrics extends Equatable {
       ];
 }
 
+// ignore_for_file: constant_identifier_names
+
 enum PathOptimizationType {
   fastest('fastest', 'Nhanh nhất'),
   cheapest('cheapest', 'Rẻ nhất'),

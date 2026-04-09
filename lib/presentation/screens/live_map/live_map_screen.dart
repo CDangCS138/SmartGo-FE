@@ -14,6 +14,8 @@ import '../../blocs/station/station_bloc.dart';
 import '../../blocs/station/station_event.dart';
 import '../../blocs/station/station_state.dart';
 import '../../widgets/loading_indicator.dart';
+import '../../widgets/tts_icon_button.dart';
+import '../../widgets/voice_input_icon_button.dart';
 import '../station/station_detail_screen.dart';
 
 class LiveMapScreen extends StatefulWidget {
@@ -24,85 +26,282 @@ class LiveMapScreen extends StatefulWidget {
 }
 
 class _LiveMapScreenState extends State<LiveMapScreen> {
+  static const int _stationPageSize = 50;
+
   final TextEditingController _searchController = TextEditingController();
   final MapController _mapController = MapController();
+  StreamSubscription<MapEvent>? _mapEventSubscription;
 
   LatLng _currentPosition = const LatLng(10.8231, 106.6297);
   LatLng? _userLocation;
 
   List<Station> _backendStations = [];
+  List<Station> _nearbyStations = [];
   Station? _selectedStation;
 
   bool _isLoading = false;
-  double _currentZoom = 13.0;
+  bool _isLoadingAllStationPages = false;
+  bool _isLoadingLocation = false;
+  bool _showNearbyOnly = false;
+  double _nearbyRadiusKm = 1.0;
+  double _currentZoom = 13;
 
   List<Station> _searchResults = [];
   Timer? _debounceTimer;
-
-  static const double _minZoomForStations = 13.0;
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
 
-    _getUserLocation();
+    _ensureUserLocation();
     _loadStationsFromBackend();
 
-    _mapController.mapEventStream.listen((event) {
-      if (!mounted) return;
-      if (event is MapEventMove) {
-        final newZoom = event.camera.zoom;
-        final wasShowing = _currentZoom >= _minZoomForStations;
-        final nowShowing = newZoom >= _minZoomForStations;
-        _currentZoom = newZoom;
-        // Only rebuild when crossing the visibility threshold
-        if (wasShowing != nowShowing) {
-          setState(() {});
-        }
+    _mapEventSubscription = _mapController.mapEventStream.listen((event) {
+      if (!mounted) {
+        return;
+      }
+      if (event is MapEventMove || event is MapEventMoveEnd) {
+        _currentZoom = event.camera.zoom;
       }
     });
   }
 
   @override
   void dispose() {
+    _mapEventSubscription?.cancel();
     _debounceTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _getUserLocation() async {
-    final position = await getCurrentGeoPosition(
-      enableHighAccuracy: true,
-      timeout: const Duration(seconds: 10),
-    );
-    if (!mounted || position == null) return;
+  bool _moveMapSafely(LatLng center, double zoom) {
+    try {
+      _mapController.move(center, zoom);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
-    final point = LatLng(position.latitude, position.longitude);
+  void _zoomBy(double delta) {
+    try {
+      final camera = _mapController.camera;
+      final nextZoom = (camera.zoom + delta).clamp(10.0, 19.0);
+      _mapController.move(camera.center, nextZoom);
+    } catch (_) {
+      // Ignore if map is not ready yet.
+    }
+  }
+
+  List<Station> get _visibleStations {
+    if (_showNearbyOnly) {
+      return _nearbyStations;
+    }
+    return _backendStations;
+  }
+
+  Future<bool> _ensureUserLocation() async {
+    if (!mounted) {
+      return false;
+    }
+
+    setState(() => _isLoadingLocation = true);
+    try {
+      var position = await getCurrentGeoPosition(
+        enableHighAccuracy: true,
+        timeout: const Duration(seconds: 10),
+      );
+
+      // On web, first request right after granting permission can return null.
+      if (position == null) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        position = await getCurrentGeoPosition(
+          enableHighAccuracy: false,
+          timeout: const Duration(seconds: 10),
+        );
+      }
+
+      if (!mounted || position == null) {
+        if (mounted) {
+          setState(() => _isLoadingLocation = false);
+        }
+        return false;
+      }
+
+      final point = LatLng(position.latitude, position.longitude);
+      setState(() {
+        _userLocation = point;
+        _currentPosition = point;
+        _isLoadingLocation = false;
+      });
+      _moveMapSafely(point, 14);
+      return true;
+    } catch (_) {
+      if (!mounted) {
+        return false;
+      }
+      setState(() => _isLoadingLocation = false);
+      return false;
+    }
+  }
+
+  Future<void> _focusOnCurrentLocation() async {
+    if (_isLoadingLocation) {
+      return;
+    }
+
+    if (_userLocation == null) {
+      final acquired = await _ensureUserLocation();
+      if (!acquired && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Chưa lấy được vị trí. Hãy chờ vài giây rồi thử lại.'),
+          ),
+        );
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    if (_userLocation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Không có tọa độ hiện tại. Vui lòng thử lại.'),
+        ),
+      );
+      return;
+    }
+
+    _moveMapSafely(_userLocation!, 15);
+  }
+
+  void _applyNearbyFilter() {
+    if (_userLocation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng bật vị trí hiện tại trước.')),
+      );
+      return;
+    }
+
+    final center = _userLocation!;
+    const distance = Distance();
+    final filtered = _backendStations.where((station) {
+      final km = distance.as(
+        LengthUnit.Kilometer,
+        center,
+        LatLng(station.latitude, station.longitude),
+      );
+      return km <= _nearbyRadiusKm;
+    }).toList();
+
     setState(() {
-      _userLocation = point;
-      _currentPosition = point;
+      _nearbyStations = filtered;
+      _showNearbyOnly = true;
+      _selectedStation = null;
     });
-    _mapController.move(point, 14);
+
+    _moveMapSafely(center, 14);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+            'Tìm thấy ${filtered.length} trạm trong ${_nearbyRadiusKm.toStringAsFixed(_nearbyRadiusKm < 1 ? 1 : 0)}km'),
+      ),
+    );
+  }
+
+  Future<void> _showNearbyDialog() async {
+    await _focusOnCurrentLocation();
+    if (!mounted || _userLocation == null) {
+      return;
+    }
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Trạm gần tôi'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Chọn bán kính hiển thị:'),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [0.5, 1.0, 2.0, 3.0].map((radius) {
+                final label = radius < 1
+                    ? '${(radius * 1000).toInt()}m'
+                    : '${radius.toInt()}km';
+                return ChoiceChip(
+                  label: Text(label),
+                  selected: _nearbyRadiusKm == radius,
+                  onSelected: (selected) {
+                    if (!selected) {
+                      return;
+                    }
+                    setState(() => _nearbyRadiusKm = radius);
+                    Navigator.of(context).pop();
+                    _applyNearbyFilter();
+                  },
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+        actions: [
+          if (_showNearbyOnly)
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _showNearbyOnly = false;
+                  _nearbyStations = [];
+                });
+                Navigator.of(context).pop();
+              },
+              child: const Text('Hiện tất cả'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Đóng'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _loadStationsFromBackend() {
-    if (!mounted) return;
-    // Check if stations are already preloaded from StationBloc
+    if (!mounted) {
+      return;
+    }
+
     final currentState = context.read<StationBloc>().state;
-    if (currentState is StationLoaded && currentState.stations.isNotEmpty) {
+    // Reuse station cache only when it is already fully loaded.
+    if (currentState is StationLoaded &&
+        currentState.stations.isNotEmpty &&
+        !currentState.hasMore &&
+        (currentState.currentPage > 1 ||
+            currentState.stations.length > _stationPageSize)) {
       setState(() {
         _backendStations = currentState.stations;
         _isLoading = false;
+        _isLoadingAllStationPages = false;
       });
       return;
     }
-    // Otherwise fetch from API
-    setState(() => _isLoading = true);
+
+    setState(() {
+      _isLoading = true;
+      _isLoadingAllStationPages = true;
+    });
+
     context.read<StationBloc>().add(
           const FetchAllStationsEvent(
             page: 1,
-            limit: 5000,
+            limit: _stationPageSize,
             refresh: true,
           ),
         );
@@ -157,15 +356,16 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     });
 
     // Zoom to level 18 - beyond disableClusteringAtZoom (17) to show individual marker
-    _mapController.move(position, 18);
+    _moveMapSafely(position, 18);
     _showStationDetail(station);
   }
 
   List<Marker> _buildStationMarkers(ColorScheme scheme) {
-    if (_currentZoom < _minZoomForStations || _backendStations.isEmpty) {
+    final source = _visibleStations;
+    if (source.isEmpty) {
       return const [];
     }
-    return _backendStations.map((station) {
+    return source.map((station) {
       final isSelected = _selectedStation?.stationCode == station.stationCode;
       return Marker(
         width: isSelected ? 40.0 : 28.0,
@@ -176,7 +376,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
           onTap: () => _showStationDetail(station),
           child: Container(
             decoration: BoxDecoration(
-              color: isSelected ? Colors.orange : scheme.primary,
+              color: scheme.primary,
               shape: BoxShape.circle,
               border: Border.all(
                 color: Colors.white,
@@ -214,14 +414,46 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
           return;
         }
         if (state is StationLoaded) {
+          List<Station> refreshedNearby = _nearbyStations;
+          if (_showNearbyOnly && _userLocation != null) {
+            const distance = Distance();
+            refreshedNearby = state.stations.where((station) {
+              final km = distance.as(
+                LengthUnit.Kilometer,
+                _userLocation!,
+                LatLng(station.latitude, station.longitude),
+              );
+              return km <= _nearbyRadiusKm;
+            }).toList();
+          }
+
           setState(() {
             _backendStations = state.stations;
+            _nearbyStations = refreshedNearby;
+          });
+
+          if (_isLoadingAllStationPages && state.hasMore) {
+            context.read<StationBloc>().add(
+                  FetchAllStationsEvent(
+                    page: state.currentPage + 1,
+                    limit: _stationPageSize,
+                    refresh: false,
+                  ),
+                );
+            return;
+          }
+
+          setState(() {
+            _isLoadingAllStationPages = false;
             _isLoading = false;
           });
           return;
         }
         if (state is StationError) {
-          setState(() => _isLoading = false);
+          setState(() {
+            _isLoadingAllStationPages = false;
+            _isLoading = false;
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Lỗi: ${state.message}')),
           );
@@ -235,6 +467,15 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
             onPressed: () => context.go(AppRoutes.home),
           ),
           actions: [
+            if (_showNearbyOnly)
+              IconButton(
+                icon: const Icon(Icons.filter_alt_off),
+                tooltip: 'Hiện tất cả trạm',
+                onPressed: () => setState(() {
+                  _showNearbyOnly = false;
+                  _nearbyStations = [];
+                }),
+              ),
             IconButton(
               icon: const Icon(Icons.settings_outlined),
               onPressed: () => context.go(AppRoutes.settings),
@@ -248,8 +489,6 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
               options: MapOptions(
                 initialCenter: _currentPosition,
                 initialZoom: _currentZoom,
-                // Removed onPositionChanged - mapEventStream handles zoom tracking
-                // This eliminates duplicate setState calls during pan/zoom
               ),
               children: [
                 TileLayer(
@@ -258,25 +497,28 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                 ),
                 MarkerClusterLayerWidget(
                   options: MarkerClusterLayerOptions(
-                    maxClusterRadius:
-                        20, // Smaller radius to avoid clustering distinct but close stations
+                    maxClusterRadius: 60,
                     size: const Size(40, 40),
                     alignment: Alignment.center,
-                    disableClusteringAtZoom:
-                        17, // Show all individual markers at higher zoom
-                    zoomToBoundsOnClick:
-                        true, // Zoom to show all markers in cluster when tapped
-                    spiderfyCluster:
-                        true, // Enable spiderfy to show all stations in tight clusters
+                    disableClusteringAtZoom: 17,
+                    zoomToBoundsOnClick: true,
+                    spiderfyCluster: true,
                     markers: stationMarkers,
                     onClusterTap: (clusterNode) {
                       // Zoom in to expand the cluster
                       final center = clusterNode.bounds.center;
-                      final currentZoom = _mapController.camera.zoom;
-                      _mapController.move(
-                        LatLng(center.latitude, center.longitude),
-                        currentZoom + 2, // Zoom in by 2 levels
-                      );
+                      try {
+                        final currentZoom = _mapController.camera.zoom;
+                        _moveMapSafely(
+                          LatLng(center.latitude, center.longitude),
+                          (currentZoom + 2).clamp(10.0, 19.0),
+                        );
+                      } catch (_) {
+                        _moveMapSafely(
+                          LatLng(center.latitude, center.longitude),
+                          15,
+                        );
+                      }
                     },
                     builder: (context, markers) {
                       return Container(
@@ -346,15 +588,38 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                       decoration: InputDecoration(
                         hintText: 'Tìm trạm...',
                         prefixIcon: Icon(Icons.search, color: scheme.primary),
-                        suffixIcon: _searchController.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() => _searchResults = []);
-                                },
-                              )
-                            : null,
+                        suffixIconConstraints: const BoxConstraints(
+                          minWidth: 44,
+                          minHeight: 44,
+                          maxWidth: 140,
+                        ),
+                        suffixIcon: SizedBox(
+                          width: _searchController.text.isNotEmpty ? 132 : 88,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              VoiceInputIconButton(
+                                controller: _searchController,
+                                tooltip: 'Nhập từ khóa tìm trạm bằng giọng nói',
+                                stopTooltip: 'Dừng nhập giọng nói',
+                                onTextChanged: (_) => setState(() {}),
+                              ),
+                              TtsIconButton(
+                                controller: _searchController,
+                                tooltip: 'Đọc từ khóa tìm trạm',
+                                emptyMessage: 'Bạn chưa nhập tên trạm để đọc.',
+                              ),
+                              if (_searchController.text.isNotEmpty)
+                                IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() => _searchResults = []);
+                                  },
+                                ),
+                            ],
+                          ),
+                        ),
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -400,6 +665,17 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                 color: scheme.scrim.withValues(alpha: 0.25),
                 child: const Center(child: LoadingIndicator()),
               ),
+            if (_showNearbyOnly)
+              Positioned(
+                top: 92,
+                left: 16,
+                child: Chip(
+                  avatar: const Icon(Icons.near_me, size: 18),
+                  label: Text(
+                    'Bán kính ${_nearbyRadiusKm < 1 ? '${(_nearbyRadiusKm * 1000).toInt()}m' : '${_nearbyRadiusKm.toInt()}km'}: ${_nearbyStations.length} trạm',
+                  ),
+                ),
+              ),
             Positioned(
               right: 16,
               bottom: 100,
@@ -408,36 +684,44 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                   FloatingActionButton.small(
                     heroTag: 'zoom_in',
                     backgroundColor: scheme.surface,
-                    onPressed: () {
-                      _mapController.move(
-                        _mapController.camera.center,
-                        _currentZoom + 1,
-                      );
-                    },
+                    onPressed: () => _zoomBy(1),
                     child: Icon(Icons.add, color: scheme.primary),
                   ),
                   const SizedBox(height: 8),
                   FloatingActionButton.small(
                     heroTag: 'zoom_out',
                     backgroundColor: scheme.surface,
-                    onPressed: () {
-                      _mapController.move(
-                        _mapController.camera.center,
-                        _currentZoom - 1,
-                      );
-                    },
+                    onPressed: () => _zoomBy(-1),
                     child: Icon(Icons.remove, color: scheme.primary),
                   ),
                   const SizedBox(height: 8),
-                  if (_userLocation != null)
-                    FloatingActionButton.small(
-                      heroTag: 'my_location',
-                      backgroundColor: scheme.surface,
-                      onPressed: () {
-                        _mapController.move(_userLocation!, 14);
-                      },
-                      child: Icon(Icons.my_location, color: scheme.primary),
+                  FloatingActionButton.small(
+                    heroTag: 'my_location',
+                    backgroundColor: scheme.surface,
+                    onPressed: _focusOnCurrentLocation,
+                    child: _isLoadingLocation
+                        ? SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: scheme.primary,
+                            ),
+                          )
+                        : Icon(Icons.my_location, color: scheme.primary),
+                  ),
+                  const SizedBox(height: 8),
+                  FloatingActionButton.small(
+                    heroTag: 'nearby_stations',
+                    backgroundColor:
+                        _showNearbyOnly ? scheme.primary : scheme.surface,
+                    onPressed: _showNearbyDialog,
+                    child: Icon(
+                      Icons.near_me,
+                      color:
+                          _showNearbyOnly ? scheme.onPrimary : scheme.primary,
                     ),
+                  ),
                 ],
               ),
             ),

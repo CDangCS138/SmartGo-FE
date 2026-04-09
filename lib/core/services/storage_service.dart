@@ -70,6 +70,19 @@ class StorageService {
     await _prefs.remove(AppConstants.userKey);
   }
 
+  // Generic string storage
+  Future<void> saveString(String key, String value) async {
+    await _prefs.setString(key, value);
+  }
+
+  String? getString(String key) {
+    return _prefs.getString(key);
+  }
+
+  Future<void> removeKey(String key) async {
+    await _prefs.remove(key);
+  }
+
   // Clear all data
   Future<void> clearAll() async {
     await _prefs.clear();

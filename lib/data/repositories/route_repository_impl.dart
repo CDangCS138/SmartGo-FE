@@ -94,12 +94,16 @@ class RouteRepositoryImpl implements RouteRepository {
     try {
       StationCodePair? stationCode;
       CoordinatesPair? coordinates;
+
+      // Populate stationCode if provided
       if (fromStationCode != null && toStationCode != null) {
         stationCode = StationCodePair(
           from: fromStationCode,
           to: toStationCode,
         );
       }
+
+      // Populate coordinates if provided
       if (fromLatitude != null &&
           fromLongitude != null &&
           toLatitude != null &&
@@ -115,6 +119,7 @@ class RouteRepositoryImpl implements RouteRepository {
           ),
         );
       }
+
       final request = PathRequest(
         stationCode: stationCode,
         coordinates: coordinates,
