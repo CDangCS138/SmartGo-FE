@@ -9,7 +9,7 @@ import 'package:smartgo/domain/entities/route.dart';
 abstract class RouteRemoteDataSource {
   Future<RouteListResponse> getAllRoutes({
     int page = 1,
-    int limit = 10,
+    int limit = 200,
     RouteDirection? direction,
   });
 
@@ -33,7 +33,7 @@ class RouteRemoteDataSourceImpl implements RouteRemoteDataSource {
   @override
   Future<RouteListResponse> getAllRoutes({
     int page = 1,
-    int limit = 10,
+    int limit = 200,
     RouteDirection? direction,
   }) async {
     try {

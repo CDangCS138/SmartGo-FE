@@ -13,7 +13,7 @@ class FetchAllRoutesEvent extends RouteEvent {
   final RouteDirection? direction;
   const FetchAllRoutesEvent({
     this.page = 1,
-    this.limit = 10,
+    this.limit = 200,
     this.direction,
   });
   @override

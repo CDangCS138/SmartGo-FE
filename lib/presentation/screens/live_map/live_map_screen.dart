@@ -26,7 +26,7 @@ class LiveMapScreen extends StatefulWidget {
 }
 
 class _LiveMapScreenState extends State<LiveMapScreen> {
-  static const int _stationPageSize = 50;
+  static const int _stationPageSize = 5000;
 
   final TextEditingController _searchController = TextEditingController();
   final MapController _mapController = MapController();
@@ -40,7 +40,6 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   Station? _selectedStation;
 
   bool _isLoading = false;
-  bool _isLoadingAllStationPages = false;
   bool _isLoadingLocation = false;
   bool _showNearbyOnly = false;
   double _nearbyRadiusKm = 1.0;
@@ -279,24 +278,15 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     }
 
     final currentState = context.read<StationBloc>().state;
-    // Reuse station cache only when it is already fully loaded.
-    if (currentState is StationLoaded &&
-        currentState.stations.isNotEmpty &&
-        !currentState.hasMore &&
-        (currentState.currentPage > 1 ||
-            currentState.stations.length > _stationPageSize)) {
+    if (currentState is StationLoaded && currentState.stations.isNotEmpty) {
       setState(() {
         _backendStations = currentState.stations;
         _isLoading = false;
-        _isLoadingAllStationPages = false;
       });
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _isLoadingAllStationPages = true;
-    });
+    setState(() => _isLoading = true);
 
     context.read<StationBloc>().add(
           const FetchAllStationsEvent(
@@ -430,30 +420,12 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
           setState(() {
             _backendStations = state.stations;
             _nearbyStations = refreshedNearby;
-          });
-
-          if (_isLoadingAllStationPages && state.hasMore) {
-            context.read<StationBloc>().add(
-                  FetchAllStationsEvent(
-                    page: state.currentPage + 1,
-                    limit: _stationPageSize,
-                    refresh: false,
-                  ),
-                );
-            return;
-          }
-
-          setState(() {
-            _isLoadingAllStationPages = false;
             _isLoading = false;
           });
           return;
         }
         if (state is StationError) {
-          setState(() {
-            _isLoadingAllStationPages = false;
-            _isLoading = false;
-          });
+          setState(() => _isLoading = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Lỗi: ${state.message}')),
           );

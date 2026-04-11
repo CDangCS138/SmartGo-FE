@@ -8,7 +8,8 @@ class TextToSpeechService {
 
   final FlutterTts _tts = FlutterTts();
   bool _isInitialized = false;
-  bool _hasConfiguredVietnamese = false;
+  bool _hasConfiguredVietnameseLanguage = false;
+  bool _hasConfiguredVietnameseVoice = false;
   String? _activeLanguageTag;
 
   Future<void> _initialize() async {
@@ -30,33 +31,45 @@ class TextToSpeechService {
   }
 
   Future<void> _configurePreferredVoice({bool force = false}) async {
-    if (_hasConfiguredVietnamese && !force) {
+    if (_hasConfiguredVietnameseLanguage &&
+        _hasConfiguredVietnameseVoice &&
+        !force) {
       return;
     }
 
-    final languageCandidates = await _buildLanguageCandidates();
+    if (force || !_hasConfiguredVietnameseLanguage) {
+      final languageCandidates = await _buildLanguageCandidates();
 
-    var languageWasSet = false;
-    for (final candidate in languageCandidates) {
-      final didSet = await _trySetLanguage(candidate);
-      if (didSet) {
-        languageWasSet = true;
-        break;
-      }
-    }
-
-    if (!languageWasSet) {
-      for (final fallback in const ['vi-VN', 'vi', 'vi_VN']) {
-        final didSet = await _trySetLanguage(fallback);
+      var languageWasSet = false;
+      for (final candidate in languageCandidates) {
+        final didSet = await _trySetLanguage(candidate);
         if (didSet) {
           languageWasSet = true;
           break;
         }
       }
+
+      if (!languageWasSet) {
+        for (final fallback in const ['vi-VN', 'vi', 'vi_VN']) {
+          final didSet = await _trySetLanguage(fallback);
+          if (didSet) {
+            languageWasSet = true;
+            break;
+          }
+        }
+      }
+
+      _hasConfiguredVietnameseLanguage = languageWasSet;
     }
 
-    final voiceWasSet = await _setVietnameseVoiceIfAvailable();
-    _hasConfiguredVietnamese = languageWasSet || voiceWasSet;
+    if (force || !_hasConfiguredVietnameseVoice) {
+      var voiceWasSet = await _setVietnameseVoiceIfAvailable();
+      if (!voiceWasSet && kIsWeb) {
+        await Future.delayed(const Duration(milliseconds: 250));
+        voiceWasSet = await _setVietnameseVoiceIfAvailable();
+      }
+      _hasConfiguredVietnameseVoice = voiceWasSet;
+    }
   }
 
   Future<List<String>> _buildLanguageCandidates() async {
@@ -163,26 +176,24 @@ class TextToSpeechService {
   }
 
   int _scoreVietnameseVoice(String locale, String name) {
-    var score = -1;
-    if (_isVietnameseTag(locale)) {
-      score = 100;
+    if (!_isVietnameseTag(locale)) {
+      return -1;
     }
 
-    final normalizedName = name.toLowerCase();
-    const vietnameseKeywords = [
-      'vietnamese',
-      'viet',
-      'hoaimy',
-      'linhsan',
-      'namminh',
-    ];
+    var score = 100;
 
-    for (final keyword in vietnameseKeywords) {
-      if (!normalizedName.contains(keyword)) {
-        continue;
-      }
-      score = score < 0 ? 60 : score + 20;
-      break;
+    final normalizedName = name.toLowerCase();
+
+    if (normalizedName.contains('vietnamese') ||
+        normalizedName.contains('viet') ||
+        normalizedName.contains('vi-vn')) {
+      score += 10;
+    }
+
+    if (normalizedName.contains('female') ||
+        normalizedName.contains('hoaimy') ||
+        normalizedName.contains('linhsan')) {
+      score += 5;
     }
 
     return score;
@@ -212,7 +223,8 @@ class TextToSpeechService {
       await _initialize();
 
       final shouldRetryVietnamese = _containsNonAscii(text) &&
-          !_isVietnameseTag(_activeLanguageTag ?? '');
+          (!_isVietnameseTag(_activeLanguageTag ?? '') ||
+              !_hasConfiguredVietnameseVoice);
       await _configurePreferredVoice(force: shouldRetryVietnamese);
 
       await _tts.stop();

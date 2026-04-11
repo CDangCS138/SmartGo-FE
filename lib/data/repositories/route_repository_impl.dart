@@ -15,7 +15,7 @@ class RouteRepositoryImpl implements RouteRepository {
   @override
   Future<Either<Failure, List<BusRoute>>> getAllRoutes({
     int page = 1,
-    int limit = 10,
+    int limit = 200,
     RouteDirection? direction,
   }) async {
     try {

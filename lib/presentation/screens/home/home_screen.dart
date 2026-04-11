@@ -186,19 +186,19 @@ class _HomeScreenState extends State<HomeScreen> {
       if (routeBloc.state is! RouteLoaded &&
           routeBloc.state is! RouteLoading &&
           routeBloc.state is! RouteLoadingMore) {
-        routeBloc.add(const FetchAllRoutesEvent(page: 1, limit: 20));
+        routeBloc.add(const FetchAllRoutesEvent(page: 1, limit: 200));
       }
 
       if (stationBloc.state is! StationLoaded &&
           stationBloc.state is! StationLoading) {
-        stationBloc.add(const FetchAllStationsEvent(page: 1, limit: 50));
+        stationBloc.add(const FetchAllStationsEvent(page: 1, limit: 5000));
       }
       return;
     }
 
     routeBloc.add(const RefreshRoutesEvent());
     stationBloc
-        .add(const FetchAllStationsEvent(page: 1, limit: 50, refresh: true));
+        .add(const FetchAllStationsEvent(page: 1, limit: 5000, refresh: true));
   }
 
   Widget _buildSectionHeader({

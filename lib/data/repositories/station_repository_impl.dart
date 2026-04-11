@@ -13,7 +13,7 @@ class StationRepositoryImpl implements StationRepository {
   @override
   Future<Either<Failure, List<Station>>> getAllStations({
     int page = 1,
-    int limit = 50,
+    int limit = 5000,
   }) async {
     try {
       final stations = await remoteDataSource.getAllStations(

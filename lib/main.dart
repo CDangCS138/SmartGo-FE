@@ -30,12 +30,8 @@ void main() async {
     await configureDependencies();
     AppLogger.info('Dependency injection configured');
     final preloadService = getIt<PreloadService>();
-    if (storageService.getAuthToken() != null) {
-      await preloadService.preloadAll();
-      AppLogger.info('Routes preloaded');
-    } else {
-      AppLogger.info('User not authenticated, skipping preload');
-    }
+    await preloadService.preloadAll();
+    AppLogger.info('Initial route and station preload triggered');
     runApp(MyApp(storageService: storageService));
   } catch (e, stackTrace) {
     AppLogger.error('Failed to initialize app', e, stackTrace);

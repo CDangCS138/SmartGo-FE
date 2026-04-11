@@ -12,7 +12,7 @@ class FetchAllStationsEvent extends StationEvent {
   final bool refresh;
   const FetchAllStationsEvent({
     this.page = 1,
-    this.limit = 50,
+    this.limit = 5000,
     this.refresh = false,
   });
   @override

@@ -8,7 +8,7 @@ import 'package:smartgo/presentation/blocs/route/route_state.dart';
 @lazySingleton
 class RouteBloc extends Bloc<RouteEvent, RouteState> {
   final RouteRepository repository;
-  static const int _defaultLimit = 10;
+  static const int _defaultLimit = 200;
   int _currentPage = 1;
   int _totalCount = 0;
   List<BusRoute> _allRoutes = [];

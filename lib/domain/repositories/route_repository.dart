@@ -6,7 +6,7 @@ import 'package:smartgo/domain/entities/path_finding.dart';
 abstract class RouteRepository {
   Future<Either<Failure, List<BusRoute>>> getAllRoutes({
     int page = 1,
-    int limit = 10,
+    int limit = 200,
     RouteDirection? direction,
   });
   Future<Either<Failure, BusRoute>> getRouteById({

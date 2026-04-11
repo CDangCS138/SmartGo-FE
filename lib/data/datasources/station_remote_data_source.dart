@@ -5,7 +5,7 @@ import '../models/station_model.dart';
 import '../../core/errors/exceptions.dart';
 
 abstract class StationRemoteDataSource {
-  Future<List<StationModel>> getAllStations({int page = 1, int limit = 50});
+  Future<List<StationModel>> getAllStations({int page = 1, int limit = 5000});
 
   Future<StationModel> getStationById(String id);
 }
@@ -22,7 +22,7 @@ class StationRemoteDataSourceImpl implements StationRemoteDataSource {
   @override
   Future<List<StationModel>> getAllStations({
     int page = 1,
-    int limit = 50,
+    int limit = 5000,
   }) async {
     try {
       final response = await client.get(
