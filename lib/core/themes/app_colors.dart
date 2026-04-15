@@ -11,4 +11,9 @@ class AppColors {
   static const Color aiOnline = Color(0xFF16A34A);
   static const Color aiAssistantBubble = Color(0xFFEAF3FF);
   static const Color aiComposerShadow = Color(0x14000000);
+
+  static const Color busScheduled = Color(0xFF9CA3AF);
+  static const Color busRunning = Color(0xFF16A34A);
+  static const Color busCompleted = Color(0xFF1E3A8A);
+  static const Color busStationMarker = Color(0xFF0F766E);
 }

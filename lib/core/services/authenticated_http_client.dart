@@ -10,7 +10,7 @@ import 'storage_service.dart';
 class AuthenticatedHttpClient extends http.BaseClient {
   final http.Client _inner;
   final StorageService _storageService;
-  static const String _baseUrl = 'https://smart-go.onrender.com';
+  static const String _baseUrl = 'http://20.6.128.105:8000';
 
   bool _isRefreshing = false;
 

@@ -17,7 +17,7 @@ class StationRemoteDataSourceImpl implements StationRemoteDataSource {
 
   StationRemoteDataSourceImpl({
     required this.client,
-  }) : baseUrl = 'https://smart-go.onrender.com';
+  }) : baseUrl = 'http://20.6.128.105:8000';
 
   @override
   Future<List<StationModel>> getAllStations({

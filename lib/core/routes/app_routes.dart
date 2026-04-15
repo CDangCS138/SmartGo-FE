@@ -8,6 +8,7 @@ class AppRoutes {
   static const String liveMap = '/live-map';
   static const String routePlanning = '/route-planning';
   static const String pathFindingDemo = '/path-finding-demo';
+  static const String busSimulations = '/bus-simulations';
   static const String routes = '/routes';
   static const String routeDetail = '/routes/:id';
   static const String settings = '/settings';

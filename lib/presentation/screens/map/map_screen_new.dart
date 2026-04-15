@@ -167,7 +167,7 @@ class _MapScreenState extends State<MapScreen> {
 
     try {
       final url = Uri.parse(
-          'https://smart-go.onrender.com/api/v1/routes?page=1&limit=100&direction=both');
+          'http://20.6.128.105:8000/api/v1/routes?page=1&limit=100&direction=both');
       final response = await http.get(
         url,
         headers: {'accept': 'application/json'},
@@ -885,7 +885,7 @@ out body;
 
     try {
       final url = Uri.parse(
-          'https://smart-go.onrender.com/api/v1/routes?page=1&limit=1&direction=both');
+          'http://20.6.128.105:8000/api/v1/routes?page=1&limit=1&direction=both');
       final response = await http.get(
         url,
         headers: {'accept': 'application/json'},

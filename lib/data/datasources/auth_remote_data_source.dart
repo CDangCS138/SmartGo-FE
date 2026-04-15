@@ -37,7 +37,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   AuthRemoteDataSourceImpl({
     required this.client,
-  }) : baseUrl = 'https://smart-go.onrender.com';
+  }) : baseUrl = 'http://20.6.128.105:8000';
 
   @override
   Future<LoginResponse> login({

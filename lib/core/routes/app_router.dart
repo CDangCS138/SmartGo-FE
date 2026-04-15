@@ -6,6 +6,7 @@ import '../../presentation/screens/home/home_screen.dart';
 import '../../presentation/screens/live_map/live_map_screen.dart';
 import '../../presentation/screens/route_planning/route_planning_screen.dart';
 import '../../presentation/screens/path_finding/path_finding_demo_screen.dart';
+import '../../presentation/screens/bus_simulation/bus_simulation_screen.dart';
 import '../../presentation/screens/map/map_screen_new.dart';
 import '../../presentation/screens/auth/login_screen.dart';
 import '../../presentation/screens/auth/register_screen.dart';
@@ -72,6 +73,15 @@ class AppRouter {
         path: AppRoutes.pathFindingDemo,
         name: 'path-finding-demo',
         builder: (context, state) => const PathFindingDemoScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.busSimulations,
+        name: 'bus-simulations',
+        builder: (context, state) => BusSimulationScreen(
+          initialRouteId: state.uri.queryParameters['routeId'],
+          initialTripId: state.uri.queryParameters['tripId'],
+          initialStationId: state.uri.queryParameters['stationId'],
+        ),
       ),
       GoRoute(
         path: AppRoutes.map,

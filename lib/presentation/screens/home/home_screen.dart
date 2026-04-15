@@ -95,10 +95,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 12),
                   AppearMotion(
                     delay: const Duration(milliseconds: 145),
-                    child: FilledButton.tonalIcon(
-                      onPressed: () => context.go(AppRoutes.chatbot),
-                      icon: const Icon(Icons.smart_toy_outlined),
-                      label: const Text('Hỏi SmartGo AI Assistant'),
+                    child: Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: () => context.go(AppRoutes.chatbot),
+                          icon: const Icon(Icons.smart_toy_outlined),
+                          label: const Text('Hỏi SmartGo AI Assistant'),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: () => context.go(AppRoutes.busSimulations),
+                          icon: const Icon(Icons.directions_bus_filled),
+                          label: const Text('Bus Simulations'),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 20),

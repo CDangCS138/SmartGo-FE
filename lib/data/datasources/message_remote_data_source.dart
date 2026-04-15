@@ -11,7 +11,7 @@ class MessageRemoteDataSource {
 
   MessageRemoteDataSource({
     required this.client,
-    this.baseUrl = 'https://smart-go.onrender.com',
+    this.baseUrl = 'http://20.6.128.105:8000',
   });
 
   Future<MessageListResponse> getMessages({

@@ -126,7 +126,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
 
       final authUri = Uri.parse(
-        'https://smart-go.onrender.com/api/v1/auth/google?state=$state',
+        'http://20.6.128.105:8000/api/v1/auth/google?state=$state',
       );
 
       if (kIsWeb) {
