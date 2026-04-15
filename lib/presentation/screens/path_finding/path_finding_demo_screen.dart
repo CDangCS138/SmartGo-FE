@@ -11,6 +11,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/services/text_to_speech_service.dart';
 import 'package:smartgo/core/services/route_geometry_service.dart';
+import 'package:smartgo/core/themes/app_colors.dart';
 import 'package:smartgo/presentation/blocs/route/route_bloc.dart';
 import 'package:smartgo/presentation/blocs/route/route_event.dart';
 import 'package:smartgo/presentation/blocs/route/route_state.dart';
@@ -64,6 +65,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   RoutingCriteria _selectedCriteria = RoutingCriteria.BALANCED;
   bool _showResults = false;
   bool _showFullRouteDetail = false;
+  bool _isMapUiCollapsed = false;
   int? _selectedPathIndex;
   int _maxTransfers = 3;
   List<Station> _stations = [];
@@ -76,6 +78,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       getIt<RouteGeometryService>();
   List<LatLng>? _routeGeometry;
   bool _isLoadingGeometry = false;
+  int _routeGeometryRequestId = 0;
 
   // Address search
   final TextEditingController _fromAddressController = TextEditingController();
@@ -332,9 +335,188 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     return points;
   }
 
+  Color _pathColor(int index) {
+    const palette = AppColors.pathResultPalette;
+    return palette[index % palette.length];
+  }
+
+  PathResult? _selectedPath() {
+    final paths = _paths;
+    final selectedIndex = _selectedPathIndex;
+    if (paths == null || selectedIndex == null) {
+      return null;
+    }
+    if (selectedIndex < 0 || selectedIndex >= paths.length) {
+      return null;
+    }
+    return paths[selectedIndex];
+  }
+
+  List<Polyline> _buildRoutePolylines() {
+    final paths = _paths;
+    if (paths == null || paths.isEmpty) {
+      return const <Polyline>[];
+    }
+
+    final selectedIndex = _selectedPathIndex;
+    final polylines = <Polyline>[];
+
+    for (var index = 0; index < paths.length; index++) {
+      final path = paths[index];
+      final points = (selectedIndex == index &&
+              _routeGeometry != null &&
+              _routeGeometry!.isNotEmpty)
+          ? _routeGeometry!
+          : _buildPathPolyline(path);
+
+      if (points.length < 2) {
+        continue;
+      }
+
+      final color = _pathColor(index);
+      final isSelected = selectedIndex == index;
+
+      if (isSelected) {
+        polylines.add(
+          Polyline(
+            points: points,
+            strokeWidth: 7,
+            color: Colors.white,
+          ),
+        );
+      }
+
+      polylines.add(
+        Polyline(
+          points: points,
+          strokeWidth: isSelected ? 4.5 : 3,
+          color: isSelected ? color : color.withValues(alpha: 0.72),
+        ),
+      );
+    }
+
+    return polylines;
+  }
+
+  List<Marker> _buildSelectedPathMarkers(PathResult? path,
+      {required Color color}) {
+    if (path == null || path.stations.isEmpty) {
+      return const <Marker>[];
+    }
+
+    final lastStationIndex = path.stations.length - 1;
+    return path.stations.asMap().entries.map((entry) {
+      final index = entry.key;
+      final station = entry.value;
+      final isStart = index == 0;
+      final isEnd = index == lastStationIndex;
+      final markerLabel = isStart
+          ? 'A'
+          : isEnd
+              ? 'B'
+              : '${index + 1}';
+
+      return Marker(
+        point: LatLng(station.latitude, station.longitude),
+        width: 50,
+        height: 58,
+        child: GestureDetector(
+          onTap: () => _showInfo(station.stationName),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.22),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.directions_bus,
+                  color: Colors.white,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: isStart
+                      ? Colors.green
+                      : isEnd
+                          ? Colors.red
+                          : color,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  markerLabel,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  void _fitMapToPath(PathResult path, {List<LatLng>? preferredPoints}) {
+    final points = (preferredPoints != null && preferredPoints.isNotEmpty)
+        ? preferredPoints
+        : _buildPathPolyline(path);
+
+    if (points.isEmpty) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      if (points.length == 1) {
+        _mapController.move(points.first, 16);
+        return;
+      }
+
+      final bounds = LatLngBounds.fromPoints(points);
+      final bottomPadding =
+          (_showResults && !_isMapUiCollapsed) ? 280.0 : 120.0;
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: bounds,
+          padding: EdgeInsets.fromLTRB(36, 96, 36, bottomPadding),
+        ),
+      );
+    });
+  }
+
   /// Load actual route geometry from OSRM for a given path
   Future<void> _loadRouteGeometry(PathResult path) async {
-    if (path.stations.length < 2) return;
+    final requestId = ++_routeGeometryRequestId;
+    if (path.stations.length < 2) {
+      if (mounted) {
+        setState(() {
+          _routeGeometry = null;
+        });
+      }
+      _fitMapToPath(path);
+      return;
+    }
 
     setState(() {
       _isLoadingGeometry = true;
@@ -347,18 +529,25 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       final geometry =
           await _routeGeometryService.getRouteGeometryBatched(waypoints);
 
-      if (mounted) {
-        setState(() {
-          _routeGeometry = geometry;
-          _isLoadingGeometry = false;
-        });
+      if (!mounted || requestId != _routeGeometryRequestId) {
+        return;
       }
+
+      setState(() {
+        _routeGeometry = geometry;
+        _isLoadingGeometry = false;
+      });
+      _fitMapToPath(path, preferredPoints: geometry);
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoadingGeometry = false;
-        });
+      if (!mounted || requestId != _routeGeometryRequestId) {
+        return;
       }
+
+      setState(() {
+        _routeGeometry = null;
+        _isLoadingGeometry = false;
+      });
+      _fitMapToPath(path);
     }
   }
 
@@ -387,6 +576,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       _selectedPathIndex = null;
       _isSpeakingRouteGuide = false;
       _routeGeometry = null; // Reset geometry when starting new search
+      _routeGeometryRequestId++;
     });
 
     if (_inputMode == InputMode.busStop) {
@@ -426,11 +616,35 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       _selectedPathIndex = null;
       _showResults = false;
       _showFullRouteDetail = false;
+      _isMapUiCollapsed = false;
       _isSpeakingRouteGuide = false;
+      _routeGeometry = null;
+      _routeGeometryRequestId++;
       _fromAddressController.clear();
       _toAddressController.clear();
       _fromAddressResults.clear();
       _toAddressResults.clear();
+    });
+  }
+
+  void _openSelectedPathDetail() {
+    final paths = _paths;
+    final selectedIndex = _selectedPathIndex;
+    if (paths == null ||
+        selectedIndex == null ||
+        selectedIndex >= paths.length) {
+      _showError('Vui lòng chọn một lộ trình trước khi xem chi tiết');
+      return;
+    }
+
+    if (_isSpeakingRouteGuide) {
+      TextToSpeechService.instance.stop();
+    }
+
+    setState(() {
+      _showFullRouteDetail = true;
+      _isSpeakingRouteGuide = false;
+      _isMapUiCollapsed = false;
     });
   }
 
@@ -515,10 +729,12 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                     // Chỉ hiển thị panel kết quả khi có ít nhất 1 lộ trình
                     _showResults = pathsCount > 0;
                     _routeGeometry = null; // Reset route geometry
+                    _routeGeometryRequestId++;
                   });
                   _showInfo('Tìm thấy $pathsCount lộ trình');
                   // Load actual route geometry for selected path
                   if (pathsCount > 0) {
+                    _fitMapToPath(state.paths[0]);
                     _loadRouteGeometry(state.paths[0]);
                   }
                 } else if (state is PathFindingError) {
@@ -529,6 +745,9 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                     _isLoading = false;
                     _showResults = false;
                     _paths = null;
+                    _selectedPathIndex = null;
+                    _routeGeometry = null;
+                    _routeGeometryRequestId++;
                     _isSpeakingRouteGuide = false;
                   });
                   _showError('Lỗi tìm đường: ${state.message}');
@@ -539,28 +758,43 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
           child: Stack(
             children: [
               _buildMap(),
-              if (!_showFullRouteDetail) _buildTopPanel(),
-              if (_inputMode == InputMode.address && !_showFullRouteDetail)
+              if (!_showFullRouteDetail && !_isMapUiCollapsed) _buildTopPanel(),
+              if (_inputMode == InputMode.address &&
+                  !_showFullRouteDetail &&
+                  !_isMapUiCollapsed)
                 _buildAddressInputPanel(),
-              if (_showResults && _paths != null && !_showFullRouteDetail)
+              if (_showResults &&
+                  _paths != null &&
+                  !_showFullRouteDetail &&
+                  !_isMapUiCollapsed)
                 _buildResultsPanel(_paths!),
               if (_showFullRouteDetail &&
                   _paths != null &&
                   _selectedPathIndex != null)
                 _buildFullRouteDetailView(_paths![_selectedPathIndex!]),
+              if (!_showFullRouteDetail) _buildMapUiToggleButton(),
               if (_isLoading) _buildLoadingOverlay(),
             ],
           ),
         ),
-        floatingActionButton: _buildFAB(),
+        floatingActionButton:
+            (_showFullRouteDetail || _isMapUiCollapsed) ? null : _buildFAB(),
       ),
     );
   }
 
   Widget _buildMap() {
     final scheme = Theme.of(context).colorScheme;
+    final hasRouteResults = _paths != null && _paths!.isNotEmpty;
+    final selectedPath = _selectedPath();
+    final selectedPathColor = _pathColor(_selectedPathIndex ?? 0);
     final stationMarkers = _buildStationMarkers();
-    final overlayMarkers = _buildOverlayMarkers();
+    final routeStationMarkers = _buildSelectedPathMarkers(
+      selectedPath,
+      color: selectedPathColor,
+    );
+    final overlayMarkers =
+        hasRouteResults ? <Marker>[] : _buildOverlayMarkers();
 
     return FlutterMap(
       mapController: _mapController,
@@ -575,29 +809,14 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
           userAgentPackageName: 'com.smartgo.app',
         ),
-        if (_selectedPathIndex != null && _paths != null)
+        if (hasRouteResults)
           PolylineLayer(
-            polylines: [
-              // Border polyline (white outline)
-              Polyline(
-                points: _routeGeometry ??
-                    _buildPathPolyline(_paths![_selectedPathIndex!]),
-                strokeWidth: 6.0,
-                color: Colors.white,
-              ),
-              // Main route polyline
-              Polyline(
-                points: _routeGeometry ??
-                    _buildPathPolyline(_paths![_selectedPathIndex!]),
-                strokeWidth: 4.0,
-                color: Colors.blue,
-              ),
-            ],
+            polylines: _buildRoutePolylines(),
           ),
         // Show loading indicator for route geometry
         if (_isLoadingGeometry)
           Positioned(
-            bottom: _showResults ? 260 : 100,
+            bottom: (_showResults && !_isMapUiCollapsed) ? 260 : 100,
             left: 16,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -626,7 +845,9 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
             ),
           ),
         // Station markers with clustering for performance
-        if (_inputMode == InputMode.busStop && stationMarkers.isNotEmpty)
+        if (_inputMode == InputMode.busStop &&
+            !hasRouteResults &&
+            stationMarkers.isNotEmpty)
           MarkerClusterLayerWidget(
             options: MarkerClusterLayerOptions(
               maxClusterRadius: 60,
@@ -664,6 +885,10 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                 );
               },
             ),
+          ),
+        if (routeStationMarkers.isNotEmpty)
+          MarkerLayer(
+            markers: routeStationMarkers,
           ),
         // Overlay markers (from/to points) always on top
         if (overlayMarkers.isNotEmpty)
@@ -1043,6 +1268,8 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
   Widget _buildResultsPanel(List<PathResult> paths) {
     final scheme = Theme.of(context).colorScheme;
+    final hasValidSelection =
+        _selectedPathIndex != null && _selectedPathIndex! < paths.length;
 
     return Positioned(
       bottom: 0,
@@ -1089,6 +1316,20 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                 ],
               ),
             ),
+            if (hasValidSelection)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _openSelectedPathDetail,
+                    icon: const Icon(Icons.article_outlined),
+                    label: Text(
+                      'Xem chi tiết lộ trình ${_selectedPathIndex! + 1}',
+                    ),
+                  ),
+                ),
+              ),
             const Divider(height: 1),
             Flexible(
               child: ListView.builder(
@@ -1107,10 +1348,18 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
   Widget _buildPathCard(PathResult path, int index) {
     final isSelected = _selectedPathIndex == index;
+    final routeColor = _pathColor(index);
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: isSelected ? 4 : 1,
-      color: isSelected ? Colors.blue[50] : null,
+      color: isSelected ? routeColor.withValues(alpha: 0.15) : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isSelected ? routeColor : Colors.transparent,
+          width: 1.4,
+        ),
+      ),
       child: InkWell(
         onTap: () {
           if (_isSpeakingRouteGuide) {
@@ -1118,10 +1367,10 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
           }
           setState(() {
             _selectedPathIndex = index;
-            _showFullRouteDetail = true;
             _isSpeakingRouteGuide = false;
             _routeGeometry = null; // Reset geometry for new path
           });
+          _fitMapToPath(path);
           // Load geometry for the newly selected path
           if (_paths != null && index < _paths!.length) {
             _loadRouteGeometry(_paths![index]);
@@ -1135,15 +1384,31 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Lộ trình ${index + 1}',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Row(
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: routeColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Lộ trình ${index + 1}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                   if (isSelected)
-                    const Icon(Icons.check_circle, color: Colors.blue),
+                    Icon(
+                      Icons.check_circle,
+                      color: routeColor,
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -1171,6 +1436,31 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                 ),
               ],
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMapUiToggleButton() {
+    final scheme = Theme.of(context).colorScheme;
+    return Positioned(
+      top: 12,
+      right: 16,
+      child: Material(
+        color: scheme.surface,
+        elevation: 3,
+        shape: const CircleBorder(),
+        child: IconButton(
+          tooltip:
+              _isMapUiCollapsed ? 'Hiện bảng điều khiển' : 'Ẩn bảng điều khiển',
+          onPressed: () {
+            setState(() {
+              _isMapUiCollapsed = !_isMapUiCollapsed;
+            });
+          },
+          icon: Icon(
+            _isMapUiCollapsed ? Icons.visibility : Icons.visibility_off,
           ),
         ),
       ),

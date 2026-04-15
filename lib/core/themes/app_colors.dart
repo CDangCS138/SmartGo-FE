@@ -16,4 +16,12 @@ class AppColors {
   static const Color busRunning = Color(0xFF16A34A);
   static const Color busCompleted = Color(0xFF1E3A8A);
   static const Color busStationMarker = Color(0xFF0F766E);
+
+  static const List<Color> pathResultPalette = <Color>[
+    Color(0xFF0F766E),
+    Color(0xFF2563EB),
+    Color(0xFFDC2626),
+    Color(0xFFD97706),
+    Color(0xFF7C3AED),
+  ];
 }
