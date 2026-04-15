@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:injectable/injectable.dart';
+import '../../core/constants/app_env.dart';
 import '../models/auth_request_models.dart';
 import '../models/auth_response_models.dart';
 import '../models/user_model.dart';
@@ -37,7 +38,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   AuthRemoteDataSourceImpl({
     required this.client,
-  }) : baseUrl = 'http://20.6.128.105:8000';
+  }) : baseUrl = AppEnv.baseUrl;
 
   @override
   Future<LoginResponse> login({

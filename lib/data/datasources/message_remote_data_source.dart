@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../core/constants/app_env.dart';
 import '../../core/errors/exceptions.dart';
 import '../models/message_models.dart';
 
@@ -11,8 +12,8 @@ class MessageRemoteDataSource {
 
   MessageRemoteDataSource({
     required this.client,
-    this.baseUrl = 'http://20.6.128.105:8000',
-  });
+    String? baseUrl,
+  }) : baseUrl = baseUrl ?? AppEnv.baseUrl;
 
   Future<MessageListResponse> getMessages({
     required String conversationId,

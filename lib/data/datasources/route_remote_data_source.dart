@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:injectable/injectable.dart';
+import 'package:smartgo/core/constants/app_env.dart';
 import 'package:smartgo/core/errors/exceptions.dart';
 import 'package:smartgo/data/models/route_model.dart';
 import 'package:smartgo/data/models/path_finding_model.dart';
@@ -28,7 +29,7 @@ class RouteRemoteDataSourceImpl implements RouteRemoteDataSource {
 
   RouteRemoteDataSourceImpl({
     required this.client,
-  }) : baseUrl = 'http://20.6.128.105:8000';
+  }) : baseUrl = AppEnv.baseUrl;
 
   @override
   Future<RouteListResponse> getAllRoutes({

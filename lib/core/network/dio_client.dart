@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
+import '../constants/app_env.dart';
 import 'interceptors/auth_interceptor.dart';
 import 'interceptors/error_interceptor.dart';
 
@@ -11,7 +12,7 @@ class DioClient {
   DioClient() {
     _dio = Dio(
       BaseOptions(
-        baseUrl: dotenv.env['BASE_URL'] ?? '',
+        baseUrl: AppEnv.baseUrl,
         connectTimeout: Duration(
           milliseconds: int.parse(dotenv.env['API_TIMEOUT'] ?? '30000'),
         ),

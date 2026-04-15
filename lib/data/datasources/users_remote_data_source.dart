@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
+import '../../core/constants/app_env.dart';
 import '../models/users_models.dart';
 
 class UsersRemoteDataSource {
@@ -12,8 +13,8 @@ class UsersRemoteDataSource {
 
   UsersRemoteDataSource({
     required this.client,
-    this.baseUrl = 'http://20.6.128.105:8000',
-  });
+    String? baseUrl,
+  }) : baseUrl = baseUrl ?? AppEnv.baseUrl;
 
   Map<String, String> _authHeaders(String accessToken) {
     return {

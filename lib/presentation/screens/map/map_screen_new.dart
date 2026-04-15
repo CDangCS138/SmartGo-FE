@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/constants/app_env.dart';
 import '../../../core/routes/app_routes.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -167,7 +168,7 @@ class _MapScreenState extends State<MapScreen> {
 
     try {
       final url = Uri.parse(
-          'http://20.6.128.105:8000/api/v1/routes?page=1&limit=100&direction=both');
+          '${AppEnv.baseUrl}/api/v1/routes?page=1&limit=100&direction=both');
       final response = await http.get(
         url,
         headers: {'accept': 'application/json'},
@@ -885,7 +886,7 @@ out body;
 
     try {
       final url = Uri.parse(
-          'http://20.6.128.105:8000/api/v1/routes?page=1&limit=1&direction=both');
+          '${AppEnv.baseUrl}/api/v1/routes?page=1&limit=1&direction=both');
       final response = await http.get(
         url,
         headers: {'accept': 'application/json'},

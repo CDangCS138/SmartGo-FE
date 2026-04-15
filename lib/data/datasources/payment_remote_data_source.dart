@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:injectable/injectable.dart';
+import 'package:smartgo/core/constants/app_env.dart';
 import 'package:smartgo/core/errors/exceptions.dart';
 import '../models/payment_request_models.dart';
 import '../models/payment_response_models.dart';
@@ -32,7 +33,7 @@ class PaymentRemoteDataSourceImpl implements PaymentRemoteDataSource {
 
   PaymentRemoteDataSourceImpl({
     required this.client,
-  }) : baseUrl = 'http://20.6.128.105:8000';
+  }) : baseUrl = AppEnv.baseUrl;
 
   Map<String, String> _buildHeaders(String? accessToken) {
     final headers = <String, String>{

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:math';
+import '../../../core/constants/app_env.dart';
 import '../../../core/utils/open_external_url.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../blocs/auth/auth_bloc.dart';
@@ -101,7 +102,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       final authUri = Uri.parse(
-        'http://20.6.128.105:8000/api/v1/auth/google?state=$state',
+        '${AppEnv.baseUrl}/api/v1/auth/google?state=$state',
       );
 
       if (kIsWeb) {

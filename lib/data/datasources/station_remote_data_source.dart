@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:injectable/injectable.dart';
+import '../../core/constants/app_env.dart';
 import '../models/station_model.dart';
 import '../../core/errors/exceptions.dart';
 
@@ -17,7 +18,7 @@ class StationRemoteDataSourceImpl implements StationRemoteDataSource {
 
   StationRemoteDataSourceImpl({
     required this.client,
-  }) : baseUrl = 'http://20.6.128.105:8000';
+  }) : baseUrl = AppEnv.baseUrl;
 
   @override
   Future<List<StationModel>> getAllStations({

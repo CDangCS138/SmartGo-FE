@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:injectable/injectable.dart';
+import '../constants/app_env.dart';
 import 'storage_service.dart';
 
 /// HTTP client that automatically adds authentication token to requests
@@ -10,7 +11,7 @@ import 'storage_service.dart';
 class AuthenticatedHttpClient extends http.BaseClient {
   final http.Client _inner;
   final StorageService _storageService;
-  static const String _baseUrl = 'http://20.6.128.105:8000';
+  static String get _baseUrl => AppEnv.baseUrl;
 
   bool _isRefreshing = false;
 

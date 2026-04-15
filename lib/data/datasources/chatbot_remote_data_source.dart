@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../../core/constants/app_env.dart';
 import '../../core/errors/exceptions.dart';
 import '../models/chatbot_models.dart';
 
@@ -12,8 +13,8 @@ class ChatbotRemoteDataSource {
 
   ChatbotRemoteDataSource({
     required this.client,
-    this.baseUrl = 'http://20.6.128.105:8000',
-  });
+    String? baseUrl,
+  }) : baseUrl = baseUrl ?? AppEnv.baseUrl;
 
   Future<ChatbotChatResponse> chat({
     required String message,
