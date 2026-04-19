@@ -106,9 +106,9 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (kIsWeb) {
-        // In debug, stay in the same tab to inspect OAuth network requests.
-        // In production, open a new tab to avoid replacing the app tab.
-        const webTarget = kDebugMode ? '_self' : '_blank';
+        // Always open OAuth in a new tab on web to keep app routing state
+        // and avoid ending up on backend /login notfound pages in the app tab.
+        const webTarget = '_blank';
         debugPrint('Google OAuth URL: $authUri (target: $webTarget)');
         await openExternalUrl(authUri, webTarget: webTarget);
         return;
@@ -244,8 +244,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    final cleanPath = Uri.base.path.isEmpty ? '/' : Uri.base.path;
-    context.replace(cleanPath);
+    context.replace(AppRoutes.login);
   }
 
   Map<String, String>? _extractGoogleCallbackParamsFromFragment(

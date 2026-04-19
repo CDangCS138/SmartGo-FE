@@ -227,36 +227,78 @@ class _PathFindingWidgetState extends State<PathFindingWidget> {
   }
 
   Widget _buildPathSummary(PathResult path) {
-    return Row(
+    final stationAccessLegs = path.stationAccessWalkingLegs;
+    final stationAccessDistanceKm = stationAccessLegs.fold<double>(
+      0,
+      (sum, leg) => sum + leg.distanceKm,
+    );
+    final stationAccessMinutes = stationAccessLegs.fold<double>(
+      0,
+      (sum, leg) => sum + leg.estimatedTimeMinutes,
+    );
+
+    return Column(
       children: [
-        Expanded(
-          child: _buildSummaryItem(
-            Icons.access_time,
-            path.formattedTime,
-            'Thời gian',
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: _buildSummaryItem(
+                Icons.access_time,
+                path.formattedTime,
+                'Thời gian',
+              ),
+            ),
+            Expanded(
+              child: _buildSummaryItem(
+                Icons.straighten,
+                path.formattedDistance,
+                'Khoảng cách',
+              ),
+            ),
+            Expanded(
+              child: _buildSummaryItem(
+                Icons.attach_money,
+                path.formattedCost,
+                'Chi phí',
+              ),
+            ),
+            Expanded(
+              child: _buildSummaryItem(
+                Icons.compare_arrows,
+                '${path.numberOfTransfers}',
+                'Chuyển',
+              ),
+            ),
+          ],
         ),
-        Expanded(
-          child: _buildSummaryItem(
-            Icons.straighten,
-            path.formattedDistance,
-            'Khoảng cách',
+        if (path.hasWalkingLegs)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              children: [
+                Icon(Icons.directions_walk, size: 14, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Text(
+                  'Đi bộ ${path.formattedWalkingDistance} (${path.formattedWalkingTime})',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                ),
+              ],
+            ),
           ),
-        ),
-        Expanded(
-          child: _buildSummaryItem(
-            Icons.attach_money,
-            path.formattedCost,
-            'Chi phí',
+        if (stationAccessLegs.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              children: [
+                Icon(Icons.alt_route, size: 14, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Text(
+                  'Đi bộ vào trạm ${stationAccessDistanceKm.toStringAsFixed(2)} km (${stationAccessMinutes.toStringAsFixed(0)} phút)',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                ),
+              ],
+            ),
           ),
-        ),
-        Expanded(
-          child: _buildSummaryItem(
-            Icons.compare_arrows,
-            '${path.numberOfTransfers}',
-            'Chuyển',
-          ),
-        ),
       ],
     );
   }
@@ -287,6 +329,7 @@ class _PathFindingWidgetState extends State<PathFindingWidget> {
 
   Widget _buildSegmentsList(PathResult path) {
     final scheme = Theme.of(context).colorScheme;
+    final stationAccessLegs = path.stationAccessWalkingLegs;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -380,6 +423,57 @@ class _PathFindingWidgetState extends State<PathFindingWidget> {
             ),
           );
         }),
+        if (path.walkingLegs.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          const Text(
+            'Chặng đi bộ',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...path.walkingLegs.map((leg) {
+            final distance = '${leg.distanceKm.toStringAsFixed(2)} km';
+            final duration =
+                '${leg.estimatedTimeMinutes.toStringAsFixed(0)} phút';
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              color: scheme.surfaceContainerLow,
+              child: ListTile(
+                leading: Icon(Icons.directions_walk, color: scheme.primary),
+                title: Text(leg.displayType),
+                subtitle: Text('${leg.stationName}\n$distance • $duration'),
+                isThreeLine: true,
+              ),
+            );
+          }),
+        ],
+        if (stationAccessLegs.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          const Text(
+            'Đi bộ vào trạm từ đường chính',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...stationAccessLegs.map((leg) {
+            final distance = '${leg.distanceKm.toStringAsFixed(2)} km';
+            final duration =
+                '${leg.estimatedTimeMinutes.toStringAsFixed(0)} phút';
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              color: scheme.surfaceContainerLow,
+              child: ListTile(
+                leading: Icon(Icons.alt_route, color: scheme.primary),
+                title: Text(leg.stationName),
+                subtitle: Text('$distance • $duration'),
+              ),
+            );
+          }),
+        ],
       ],
     );
   }

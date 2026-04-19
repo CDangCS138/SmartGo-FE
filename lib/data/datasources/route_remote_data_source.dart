@@ -12,7 +12,10 @@ abstract class RouteRemoteDataSource {
     int page = 1,
     int limit = 200,
     RouteDirection? direction,
+    String routeCode = '',
   });
+
+  Future<RouteSummaryResponse> getRouteSummary();
 
   Future<RouteResponse> getRouteById({
     required String id,
@@ -36,14 +39,23 @@ class RouteRemoteDataSourceImpl implements RouteRemoteDataSource {
     int page = 1,
     int limit = 200,
     RouteDirection? direction,
+    String routeCode = '',
   }) async {
     try {
+      final normalizedRouteCode = routeCode.trim();
       final queryParams = <String, String>{
         'page': page.toString(),
         'limit': limit.toString(),
       };
 
-      if (direction != null) {
+      if (normalizedRouteCode.isNotEmpty) {
+        // routeCode identifies a bus route across both directions.
+        queryParams['routeCode'] = normalizedRouteCode;
+      }
+
+      if (normalizedRouteCode.isEmpty &&
+          direction != null &&
+          direction != RouteDirection.both) {
         queryParams['direction'] = direction.toApiString();
       }
 
@@ -64,6 +76,34 @@ class RouteRemoteDataSourceImpl implements RouteRemoteDataSource {
         throw const NotFoundException('Routes not found');
       } else {
         throw ServerException('Failed to fetch routes: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (e is ServerException || e is NotFoundException) {
+        rethrow;
+      }
+      throw NetworkException('Network error occurred: $e');
+    }
+  }
+
+  @override
+  Future<RouteSummaryResponse> getRouteSummary() async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/v1/routes/summary');
+
+      final response = await client.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final jsonData = json.decode(response.body) as Map<String, dynamic>;
+        return RouteSummaryResponse.fromJson(jsonData);
+      } else {
+        throw ServerException(
+          'Failed to fetch route summary: ${response.statusCode}',
+        );
       }
     } catch (e) {
       if (e is ServerException || e is NotFoundException) {

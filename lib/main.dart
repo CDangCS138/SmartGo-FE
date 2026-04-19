@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartgo/l10n/app_localizations.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:url_strategy/url_strategy.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/preload_service.dart';
@@ -22,8 +21,6 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   setPathUrlStrategy();
   try {
-    await dotenv.load(fileName: '.env');
-    AppLogger.info('Environment variables loaded');
     final prefs = await SharedPreferences.getInstance();
     final storageService = StorageService(prefs);
     AppLogger.info('SharedPreferences initialized');

@@ -1,5 +1,4 @@
 import 'package:dio/dio.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 import '../constants/app_env.dart';
@@ -13,11 +12,11 @@ class DioClient {
     _dio = Dio(
       BaseOptions(
         baseUrl: AppEnv.baseUrl,
-        connectTimeout: Duration(
-          milliseconds: int.parse(dotenv.env['API_TIMEOUT'] ?? '30000'),
+        connectTimeout: const Duration(
+          milliseconds: AppEnv.apiTimeoutMs,
         ),
-        receiveTimeout: Duration(
-          milliseconds: int.parse(dotenv.env['API_TIMEOUT'] ?? '30000'),
+        receiveTimeout: const Duration(
+          milliseconds: AppEnv.apiTimeoutMs,
         ),
         headers: {
           'Content-Type': 'application/json',

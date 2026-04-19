@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -28,12 +29,16 @@ class RouteDetailScreen extends StatefulWidget {
 class _RouteDetailScreenState extends State<RouteDetailScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final MapController _mapController = MapController();
+  final MapController _forwardMapController = MapController();
+  final MapController _backwardMapController = MapController();
+  final Distance _distance = const Distance();
   final RouteGeometryService _routeGeometryService =
       getIt<RouteGeometryService>();
   final RouteRepository _routeRepository = getIt<RouteRepository>();
 
   late BusRoute _route;
+  BusRoute? _forwardRoute;
+  BusRoute? _backwardRoute;
   bool _isLoadingRoute = false;
 
   List<Station> _forwardStations = [];
@@ -49,19 +54,112 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   void initState() {
     super.initState();
     _route = widget.route;
+    _seedDirectionRoutesFromCurrent();
     _tabController = TabController(length: 3, vsync: this);
-    if (_route.routeForwardCodes.isEmpty && _route.routeBackwardCodes.isEmpty) {
+    if (_forwardCodes.isEmpty || _backwardCodes.isEmpty) {
       _fetchFullRoute();
     } else {
       _loadStations();
     }
   }
 
+  void _seedDirectionRoutesFromCurrent() {
+    if (_route.routeForwardCodes.isNotEmpty) {
+      _forwardRoute = _route;
+    }
+    if (_route.routeBackwardCodes.isNotEmpty) {
+      _backwardRoute = _route;
+    }
+  }
+
+  Map<String, String> get _forwardCodes {
+    if (_forwardRoute != null && _forwardRoute!.routeForwardCodes.isNotEmpty) {
+      return _forwardRoute!.routeForwardCodes;
+    }
+    return _route.routeForwardCodes;
+  }
+
+  Map<String, String> get _backwardCodes {
+    if (_backwardRoute != null &&
+        _backwardRoute!.routeBackwardCodes.isNotEmpty) {
+      return _backwardRoute!.routeBackwardCodes;
+    }
+    return _route.routeBackwardCodes;
+  }
+
+  void _applyDirectionalRoutes(List<BusRoute> routes) {
+    if (routes.isEmpty) {
+      return;
+    }
+
+    // API with routeCode returns 2 routes: first is outbound, second is return.
+    final orderedForward = routes.first;
+    final orderedBackward = routes.length > 1 ? routes[1] : null;
+
+    BusRoute? forwardByCodes;
+    BusRoute? backwardByCodes;
+
+    for (final route in routes) {
+      if (forwardByCodes == null && route.routeForwardCodes.isNotEmpty) {
+        forwardByCodes = route;
+      }
+      if (backwardByCodes == null && route.routeBackwardCodes.isNotEmpty) {
+        backwardByCodes = route;
+      }
+    }
+
+    _forwardRoute = forwardByCodes ?? orderedForward;
+    _backwardRoute = backwardByCodes ?? orderedBackward;
+    _route = _forwardRoute ?? _route;
+  }
+
   Future<void> _fetchFullRoute() async {
     setState(() {
       _isLoadingRoute = true;
     });
+
+    if (_route.routeCode.trim().isNotEmpty) {
+      final listResult = await _routeRepository.getAllRoutes(
+        page: 1,
+        limit: 20,
+        routeCode: _route.routeCode,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      listResult.fold(
+        (failure) {
+          setState(() {
+            _isLoadingRoute = false;
+          });
+          _loadStations();
+        },
+        (routes) {
+          if (routes.isEmpty) {
+            setState(() {
+              _isLoadingRoute = false;
+            });
+            _loadStations();
+            return;
+          }
+
+          setState(() {
+            _applyDirectionalRoutes(routes);
+            _isLoadingRoute = false;
+          });
+          _loadStations();
+        },
+      );
+      return;
+    }
+
     final result = await _routeRepository.getRouteById(id: _route.id);
+    if (!mounted) {
+      return;
+    }
+
     result.fold(
       (failure) {
         setState(() {
@@ -73,6 +171,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       (fullRoute) {
         setState(() {
           _route = fullRoute;
+          _seedDirectionRoutesFromCurrent();
           _isLoadingRoute = false;
         });
         _loadStations();
@@ -91,17 +190,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final currentState = context.read<StationBloc>().state;
     if (currentState is StationLoaded && currentState.stations.isNotEmpty) {
       // Use preloaded data directly
-      setState(() {
-        _forwardStations = _matchStationsWithCodes(
-          _route.routeForwardCodes,
-          currentState.stations,
-        );
-        _backwardStations = _matchStationsWithCodes(
-          _route.routeBackwardCodes,
-          currentState.stations,
-        );
-        _isLoadingStations = false;
-      });
+      _syncStations(currentState.stations);
       // Load route geometries after stations are matched
       _loadRouteGeometries();
       return;
@@ -112,6 +201,20 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _isLoadingStations = true;
     });
     context.read<StationBloc>().add(const FetchAllStationsEvent(limit: 5000));
+  }
+
+  void _syncStations(List<Station> stations) {
+    setState(() {
+      _forwardStations = _matchStationsWithCodes(
+        _forwardCodes,
+        stations,
+      );
+      _backwardStations = _matchStationsWithCodes(
+        _backwardCodes,
+        stations,
+      );
+      _isLoadingStations = false;
+    });
   }
 
   List<Station> _matchStationsWithCodes(
@@ -138,36 +241,174 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   Future<void> _loadRouteGeometries() async {
+    if (!mounted) {
+      return;
+    }
+
     setState(() {
       _isLoadingGeometry = true;
     });
 
-    // Load forward route geometry
-    if (_forwardStations.isNotEmpty) {
-      final forwardWaypoints =
-          _forwardStations.map((s) => LatLng(s.latitude, s.longitude)).toList();
+    final forwardGeometry = await _loadDirectionGeometry(_forwardStations);
+    final backwardGeometry = await _loadDirectionGeometry(_backwardStations);
 
-      if (forwardWaypoints.length >= 2) {
-        _forwardRouteGeometry = await _routeGeometryService
-            .getRouteGeometryBatched(forwardWaypoints);
-      }
-    }
-
-    // Load backward route geometry
-    if (_backwardStations.isNotEmpty) {
-      final backwardWaypoints = _backwardStations
-          .map((s) => LatLng(s.latitude, s.longitude))
-          .toList();
-
-      if (backwardWaypoints.length >= 2) {
-        _backwardRouteGeometry = await _routeGeometryService
-            .getRouteGeometryBatched(backwardWaypoints);
-      }
+    if (!mounted) {
+      return;
     }
 
     setState(() {
+      _forwardRouteGeometry = forwardGeometry;
+      _backwardRouteGeometry = backwardGeometry;
       _isLoadingGeometry = false;
     });
+  }
+
+  Future<List<LatLng>?> _loadDirectionGeometry(List<Station> stations) async {
+    if (stations.length < 2) {
+      return null;
+    }
+
+    final waypoints = _buildDisplayWaypoints(stations);
+    if (waypoints.length < 2) {
+      return null;
+    }
+
+    // Match + interpolation often follows the main road better than plain route.
+    final matchedGeometry =
+        await _routeGeometryService.getDrivingGeometryPreferMatch(
+      waypoints,
+      maxCoordinatesPerRequest: 100,
+    );
+    if (!_isSamePointList(matchedGeometry, waypoints)) {
+      return matchedGeometry;
+    }
+
+    // One fallback route request only.
+    final singleCallGeometry =
+        await _routeGeometryService.getDrivingGeometryWithoutSnapping(
+      waypoints,
+      maxWaypointsPerRequest: waypoints.length,
+    );
+    return singleCallGeometry;
+  }
+
+  List<LatLng> _buildDisplayWaypoints(List<Station> stations) {
+    final raw = stations
+        .map((station) => LatLng(station.latitude, station.longitude))
+        .toList(growable: false);
+
+    if (raw.length <= 2) {
+      return raw;
+    }
+
+    final filtered = <LatLng>[raw.first];
+    for (var index = 1; index < raw.length - 1; index++) {
+      final previous = filtered.last;
+      final current = raw[index];
+      final next = raw[index + 1];
+
+      final prevCurrent = _distance.as(LengthUnit.Meter, previous, current);
+      final currentNext = _distance.as(LengthUnit.Meter, current, next);
+      final prevNext = _distance.as(LengthUnit.Meter, previous, next);
+      final deviation = _distancePointToSegmentMeters(
+        point: current,
+        segmentStart: previous,
+        segmentEnd: next,
+      );
+
+      final isMinorAlleyDetour =
+          prevCurrent <= 140 && currentNext <= 140 && prevNext <= 240;
+      final isNearMainCorridor = deviation <= 45;
+
+      if (isMinorAlleyDetour && isNearMainCorridor) {
+        continue;
+      }
+
+      filtered.add(current);
+    }
+    filtered.add(raw.last);
+
+    return _dedupeWaypoints(filtered, minDistanceMeters: 8);
+  }
+
+  List<LatLng> _dedupeWaypoints(
+    List<LatLng> waypoints, {
+    required double minDistanceMeters,
+  }) {
+    if (waypoints.isEmpty) {
+      return const <LatLng>[];
+    }
+
+    final deduped = <LatLng>[waypoints.first];
+    for (final point in waypoints.skip(1)) {
+      final previous = deduped.last;
+      final distanceMeters = _distance.as(LengthUnit.Meter, previous, point);
+      if (distanceMeters >= minDistanceMeters) {
+        deduped.add(point);
+      }
+    }
+    return deduped;
+  }
+
+  double _distancePointToSegmentMeters({
+    required LatLng point,
+    required LatLng segmentStart,
+    required LatLng segmentEnd,
+  }) {
+    const metersPerDegreeLat = 110540.0;
+    const metersPerDegreeLonAtEquator = 111320.0;
+
+    final averageLatitudeRadians =
+        ((segmentStart.latitude + segmentEnd.latitude + point.latitude) / 3) *
+            (math.pi / 180);
+    final lonScale =
+        metersPerDegreeLonAtEquator * math.cos(averageLatitudeRadians).abs();
+
+    const startX = 0.0;
+    const startY = 0.0;
+    final endX = (segmentEnd.longitude - segmentStart.longitude) * lonScale;
+    final endY =
+        (segmentEnd.latitude - segmentStart.latitude) * metersPerDegreeLat;
+    final pointX = (point.longitude - segmentStart.longitude) * lonScale;
+    final pointY =
+        (point.latitude - segmentStart.latitude) * metersPerDegreeLat;
+
+    final segmentLengthSquared = ((endX - startX) * (endX - startX)) +
+        ((endY - startY) * (endY - startY));
+    if (segmentLengthSquared == 0) {
+      final dx = pointX - startX;
+      final dy = pointY - startY;
+      return math.sqrt((dx * dx) + (dy * dy));
+    }
+
+    final projection = (((pointX - startX) * (endX - startX)) +
+            ((pointY - startY) * (endY - startY))) /
+        segmentLengthSquared;
+    final t = projection.clamp(0.0, 1.0);
+
+    final closestX = startX + ((endX - startX) * t);
+    final closestY = startY + ((endY - startY) * t);
+    final dx = pointX - closestX;
+    final dy = pointY - closestY;
+
+    return math.sqrt((dx * dx) + (dy * dy));
+  }
+
+  bool _isSamePointList(List<LatLng> first, List<LatLng> second) {
+    if (first.length != second.length) {
+      return false;
+    }
+
+    for (var index = 0; index < first.length; index++) {
+      final pointA = first[index];
+      final pointB = second[index];
+      if ((pointA.latitude - pointB.latitude).abs() > 0.000001 ||
+          (pointA.longitude - pointB.longitude).abs() > 0.000001) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   @override
@@ -177,17 +418,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return BlocListener<StationBloc, StationState>(
       listener: (context, state) {
         if (state is StationLoaded) {
-          setState(() {
-            _forwardStations = _matchStationsWithCodes(
-              _route.routeForwardCodes,
-              state.stations,
-            );
-            _backwardStations = _matchStationsWithCodes(
-              _route.routeBackwardCodes,
-              state.stations,
-            );
-            _isLoadingStations = false;
-          });
+          _syncStations(state.stations);
 
           // Load route geometries after stations are loaded
           _loadRouteGeometries();
@@ -216,14 +447,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                   _buildInfoTab(),
                   _buildRouteMapTab(
                     _forwardStations,
-                    'Chiều đi: ${_route.startPoint} → ${_route.endPoint}',
+                    'Chiều đi: ${(_forwardRoute ?? _route).startPoint} → ${(_forwardRoute ?? _route).endPoint}',
                     scheme.tertiary,
+                    mapController: _forwardMapController,
                     routeGeometry: _forwardRouteGeometry,
                   ),
                   _buildRouteMapTab(
                     _backwardStations,
-                    'Chiều về: ${_route.endPoint} → ${_route.startPoint}',
+                    'Chiều về: ${(_backwardRoute ?? _route).startPoint} → ${(_backwardRoute ?? _route).endPoint}',
                     scheme.primary,
+                    mapController: _backwardMapController,
                     routeGeometry: _backwardRouteGeometry,
                   ),
                 ],
@@ -357,12 +590,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             children: [
               _buildStationCount(
                 'Chiều đi',
-                _route.routeForwardCodes.length,
+                _forwardCodes.length,
                 scheme.tertiary,
               ),
               _buildStationCount(
                 'Chiều về',
-                _route.routeBackwardCodes.length,
+                _backwardCodes.length,
                 scheme.primary,
               ),
             ],
@@ -433,6 +666,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     List<Station> stations,
     String title,
     Color routeColor, {
+    required MapController mapController,
     List<LatLng>? routeGeometry,
   }) {
     if (_isLoadingStations) {
@@ -549,7 +783,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         ),
         Expanded(
           child: FlutterMap(
-            mapController: _mapController,
+            mapController: mapController,
             options: MapOptions(
               initialCenter: LatLng(centerLat, centerLon),
               initialZoom: 13.0,
@@ -633,7 +867,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 trailing: IconButton(
                   icon: const Icon(Icons.center_focus_strong, size: 20),
                   onPressed: () {
-                    _mapController.move(
+                    mapController.move(
                       LatLng(
                         station.latitude,
                         station.longitude,

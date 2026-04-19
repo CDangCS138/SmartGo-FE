@@ -8,6 +8,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import '../../../core/platform/geolocation.dart';
+import '../../../core/di/injection.dart';
+import '../../../core/services/route_geometry_service.dart';
 import '../../widgets/tts_icon_button.dart';
 import '../../widgets/voice_input_icon_button.dart';
 
@@ -22,6 +24,8 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final TextEditingController _searchController = TextEditingController();
   final MapController _mapController = MapController();
+  final RouteGeometryService _routeGeometryService =
+      getIt<RouteGeometryService>();
 
   LatLng _currentPosition = const LatLng(10.8231, 106.6297);
   LatLng? _userLocation;
@@ -161,14 +165,41 @@ class _MapScreenState extends State<MapScreen> {
     return null;
   }
 
+  Future<List<LatLng>> _buildRouteGeometryFromStops(
+    List<Map<String, dynamic>> stops,
+  ) async {
+    final waypoints = <LatLng>[];
+
+    for (final stop in stops) {
+      final lat = (stop['lat'] as num?)?.toDouble();
+      final lon = (stop['lon'] as num?)?.toDouble();
+      if (lat == null || lon == null) {
+        continue;
+      }
+      waypoints.add(LatLng(lat, lon));
+    }
+
+    if (waypoints.length < 2) {
+      return waypoints;
+    }
+
+    return _routeGeometryService.getRouteGeometryBatched(waypoints);
+  }
+
   // Fetch routes từ API
   Future<void> _fetchApiRoutes() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {
-      final url = Uri.parse(
-          '${AppEnv.baseUrl}/api/v1/routes?page=1&limit=100&direction=both');
+      final url = Uri.parse('${AppEnv.baseUrl}/api/v1/routes').replace(
+        queryParameters: {
+          'page': '1',
+          'limit': '100',
+          'direction': 'both',
+          'routeCode': '',
+        },
+      );
       final response = await http.get(
         url,
         headers: {'accept': 'application/json'},
@@ -249,30 +280,7 @@ class _MapScreenState extends State<MapScreen> {
         return;
       }
 
-      // Vẽ route giống như _drawRoute
-      List<LatLng> allRoutePoints = [];
-
-      for (int i = 0; i < matchedStops.length - 1; i++) {
-        final start = matchedStops[i];
-        final end = matchedStops[i + 1];
-
-        final url = Uri.parse(
-          'https://router.project-osrm.org/route/v1/driving/${start['lon']},${start['lat']};${end['lon']},${end['lat']}?overview=full&geometries=geojson',
-        );
-
-        final response = await http.get(url);
-
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          final routes = data['routes'] as List;
-
-          if (routes.isNotEmpty) {
-            final coords = routes[0]['geometry']['coordinates'] as List;
-            allRoutePoints.addAll(
-                coords.map((c) => LatLng(c[1] as double, c[0] as double)));
-          }
-        }
-      }
+      final allRoutePoints = await _buildRouteGeometryFromStops(matchedStops);
 
       if (!mounted) return;
 
@@ -885,8 +893,14 @@ out body;
     setState(() => _isLoading = true);
 
     try {
-      final url = Uri.parse(
-          '${AppEnv.baseUrl}/api/v1/routes?page=1&limit=1&direction=both');
+      final url = Uri.parse('${AppEnv.baseUrl}/api/v1/routes').replace(
+        queryParameters: {
+          'page': '1',
+          'limit': '1',
+          'direction': 'both',
+          'routeCode': routeCode,
+        },
+      );
       final response = await http.get(
         url,
         headers: {'accept': 'application/json'},
@@ -914,29 +928,8 @@ out body;
     setState(() => _isLoading = true);
 
     try {
-      List<LatLng> allRoutePoints = [];
-
-      for (int i = 0; i < _selectedRouteStops.length - 1; i++) {
-        final start = _selectedRouteStops[i];
-        final end = _selectedRouteStops[i + 1];
-
-        final url = Uri.parse(
-          'https://router.project-osrm.org/route/v1/driving/${start['lon']},${start['lat']};${end['lon']},${end['lat']}?overview=full&geometries=geojson',
-        );
-
-        final response = await http.get(url);
-
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          final routes = data['routes'] as List;
-
-          if (routes.isNotEmpty) {
-            final coords = routes[0]['geometry']['coordinates'] as List;
-            allRoutePoints.addAll(
-                coords.map((c) => LatLng(c[1] as double, c[0] as double)));
-          }
-        }
-      }
+      final allRoutePoints =
+          await _buildRouteGeometryFromStops(_selectedRouteStops);
 
       if (!mounted) return;
 

@@ -136,7 +136,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         (_profileUser?.role ?? _rawUser?['role']?.toString() ?? 'member')
             .toUpperCase();
     final avatarUrl = _profileUser?.avatar ?? _rawUser?['avatar']?.toString();
-    final profileId = _profileUser?.id ?? _rawUser?['_id']?.toString() ?? '-';
     final isAdmin = role == 'ADMIN';
     final initials = name.trim().isEmpty
         ? 'SG'
@@ -255,7 +254,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _line('Tên hiển thị', name),
               _line('Email', email),
               _line('Vai trò', role),
-              _line('ID', profileId),
             ],
           ),
           if (_isLoadingProfile) ...[

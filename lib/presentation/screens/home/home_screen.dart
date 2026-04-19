@@ -102,12 +102,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         FilledButton.tonalIcon(
                           onPressed: () => context.go(AppRoutes.chatbot),
                           icon: const Icon(Icons.smart_toy_outlined),
-                          label: const Text('Hỏi SmartGo AI Assistant'),
+                          label: const Text('Hỏi trợ lý SmartGo'),
                         ),
                         FilledButton.tonalIcon(
                           onPressed: () => context.go(AppRoutes.busSimulations),
                           icon: const Icon(Icons.directions_bus_filled),
-                          label: const Text('Bus Simulations'),
+                          label: const Text('Xe buýt thời gian thực'),
                         ),
                       ],
                     ),

@@ -17,12 +17,14 @@ class RouteRepositoryImpl implements RouteRepository {
     int page = 1,
     int limit = 200,
     RouteDirection? direction,
+    String routeCode = '',
   }) async {
     try {
       final response = await remoteDataSource.getAllRoutes(
         page: page,
         limit: limit,
         direction: direction,
+        routeCode: routeCode,
       );
       return Right(response.data.routes);
     } on ServerException catch (e) {
@@ -61,11 +63,8 @@ class RouteRepositoryImpl implements RouteRepository {
   @override
   Future<Either<Failure, int>> getTotalRoutes() async {
     try {
-      final response = await remoteDataSource.getAllRoutes(
-        page: 1,
-        limit: 1,
-      );
-      return Right(response.data.total);
+      final summary = await remoteDataSource.getRouteSummary();
+      return Right(summary.routeCount);
     } on ServerException catch (e) {
       return Left(ServerFailure(e.message));
     } on NetworkException catch (e) {

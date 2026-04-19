@@ -117,10 +117,10 @@ class PathSegmentModel extends PathSegment {
   });
   factory PathSegmentModel.fromJson(Map<String, dynamic> json) {
     return PathSegmentModel(
-      from: json['from'] as String,
-      to: json['to'] as String,
-      routeCode: json['routeCode'] as String,
-      routeName: json['routeName'] as String,
+      from: json['from']?.toString() ?? '',
+      to: json['to']?.toString() ?? '',
+      routeCode: json['routeCode']?.toString() ?? '',
+      routeName: json['routeName']?.toString() ?? '',
       distance: ((json['distance'] as num?) ?? 0).toDouble(),
       time: ((json['time'] as num?) ?? 0).toDouble(),
       cost: ((json['cost'] as num?) ?? 0).toDouble(),
@@ -146,8 +146,8 @@ class PathRouteInfoModel extends PathRouteInfo {
   });
   factory PathRouteInfoModel.fromJson(Map<String, dynamic> json) {
     return PathRouteInfoModel(
-      routeCode: json['routeCode'] as String,
-      routeName: json['routeName'] as String,
+      routeCode: json['routeCode']?.toString() ?? '',
+      routeName: json['routeName']?.toString() ?? '',
     );
   }
   Map<String, dynamic> toJson() {
@@ -179,20 +179,135 @@ class StationCoordinatesModel {
   }
 }
 
+class PathCoordinatesModel extends PathCoordinates {
+  const PathCoordinatesModel({
+    required super.latitude,
+    required super.longitude,
+  });
+
+  factory PathCoordinatesModel.fromJson(dynamic json) {
+    final map =
+        json is Map ? Map<String, dynamic>.from(json) : <String, dynamic>{};
+    return PathCoordinatesModel(
+      latitude: ((map['latitude'] as num?) ?? 0).toDouble(),
+      longitude: ((map['longitude'] as num?) ?? 0).toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'latitude': latitude,
+      'longitude': longitude,
+    };
+  }
+}
+
+class WalkingLegModel extends WalkingLeg {
+  const WalkingLegModel({
+    required super.type,
+    required super.fromCoordinates,
+    required super.toCoordinates,
+    required super.stationCode,
+    required super.stationName,
+    super.fromStationCode,
+    super.fromStationName,
+    required super.distanceKm,
+    required super.estimatedTimeMinutes,
+  });
+
+  factory WalkingLegModel.fromJson(Map<String, dynamic> json) {
+    return WalkingLegModel(
+      type: json['type']?.toString() ?? '',
+      fromCoordinates: PathCoordinatesModel.fromJson(json['fromCoordinates']),
+      toCoordinates: PathCoordinatesModel.fromJson(json['toCoordinates']),
+      stationCode: json['stationCode']?.toString() ?? '',
+      stationName: json['stationName']?.toString() ?? '',
+      fromStationCode: json['fromStationCode']?.toString(),
+      fromStationName: json['fromStationName']?.toString(),
+      distanceKm: ((json['distanceKm'] as num?) ?? 0).toDouble(),
+      estimatedTimeMinutes:
+          ((json['estimatedTimeMinutes'] as num?) ?? 0).toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'type': type,
+      'fromCoordinates': (fromCoordinates is PathCoordinatesModel)
+          ? (fromCoordinates as PathCoordinatesModel).toJson()
+          : {
+              'latitude': fromCoordinates.latitude,
+              'longitude': fromCoordinates.longitude,
+            },
+      'toCoordinates': (toCoordinates is PathCoordinatesModel)
+          ? (toCoordinates as PathCoordinatesModel).toJson()
+          : {
+              'latitude': toCoordinates.latitude,
+              'longitude': toCoordinates.longitude,
+            },
+      'stationCode': stationCode,
+      'stationName': stationName,
+      if (fromStationCode != null) 'fromStationCode': fromStationCode,
+      if (fromStationName != null) 'fromStationName': fromStationName,
+      'distanceKm': distanceKm,
+      'estimatedTimeMinutes': estimatedTimeMinutes,
+    };
+  }
+}
+
 class PathStationInfoModel extends PathStationInfo {
   const PathStationInfoModel({
     required super.stationCode,
     required super.stationName,
     required super.latitude,
     required super.longitude,
+    super.accessPoint,
+    super.snappedPoint,
+    super.isInAlley,
+    super.walkDistanceToAccessPointKm,
+    super.walkTimeToAccessPointMinutes,
   });
+
+  static PathCoordinatesModel? _parseOptionalCoordinates(dynamic raw) {
+    if (raw is! Map) {
+      return null;
+    }
+
+    final map = Map<String, dynamic>.from(raw);
+    final hasLatitude = map['latitude'] is num;
+    final hasLongitude = map['longitude'] is num;
+    if (!hasLatitude || !hasLongitude) {
+      return null;
+    }
+
+    return PathCoordinatesModel.fromJson(map);
+  }
+
   factory PathStationInfoModel.fromJson(Map<String, dynamic> json) {
-    final coords = json['coordinates'] as Map<String, dynamic>? ?? {};
+    final coords = json['coordinates'] is Map
+        ? Map<String, dynamic>.from(json['coordinates'] as Map)
+        : <String, dynamic>{};
+
+    final accessPoint = _parseOptionalCoordinates(json['accessPoint']);
+    final snappedPoint = _parseOptionalCoordinates(json['snappedPoint']);
+
+    final walkDistanceRaw =
+        (json['walkDistanceToAccessPointKm'] ?? json['walkDistanceKm']) as num?;
+    final walkTimeRaw = (json['walkTimeToAccessPointMinutes'] ??
+        json['walkTimeMinutes']) as num?;
+
     return PathStationInfoModel(
-      stationCode: json['stationCode'] as String,
-      stationName: json['stationName'] as String,
-      latitude: ((coords['latitude'] as num?) ?? 0).toDouble(),
-      longitude: ((coords['longitude'] as num?) ?? 0).toDouble(),
+      stationCode: json['stationCode']?.toString() ?? '',
+      stationName: json['stationName']?.toString() ?? '',
+      latitude:
+          ((coords['latitude'] ?? json['latitude']) as num?)?.toDouble() ?? 0,
+      longitude:
+          ((coords['longitude'] ?? json['longitude']) as num?)?.toDouble() ?? 0,
+      accessPoint: accessPoint,
+      snappedPoint: snappedPoint,
+      isInAlley: (json['isInAlley'] as bool?) ?? false,
+      walkDistanceToAccessPointKm: walkDistanceRaw?.toDouble(),
+      walkTimeToAccessPointMinutes: walkTimeRaw?.toDouble(),
     );
   }
   Map<String, dynamic> toJson() {
@@ -203,6 +318,21 @@ class PathStationInfoModel extends PathStationInfo {
         'latitude': latitude,
         'longitude': longitude,
       },
+      if (accessPoint != null)
+        'accessPoint': {
+          'latitude': accessPoint!.latitude,
+          'longitude': accessPoint!.longitude,
+        },
+      if (snappedPoint != null)
+        'snappedPoint': {
+          'latitude': snappedPoint!.latitude,
+          'longitude': snappedPoint!.longitude,
+        },
+      'isInAlley': isInAlley,
+      if (walkDistanceToAccessPointKm != null)
+        'walkDistanceToAccessPointKm': walkDistanceToAccessPointKm,
+      if (walkTimeToAccessPointMinutes != null)
+        'walkTimeToAccessPointMinutes': walkTimeToAccessPointMinutes,
     };
   }
 }
@@ -215,6 +345,11 @@ class PathResultModel extends PathResult {
     required super.totalTime,
     required super.totalCost,
     required super.segments,
+    super.walkingLegs,
+    super.transitDistanceKm,
+    super.transitTimeMinutes,
+    super.totalWalkingDistanceKm,
+    super.totalWalkingTimeMinutes,
     super.transfers,
     super.optimizationScore,
     super.optimizationType,
@@ -238,21 +373,105 @@ class PathResultModel extends PathResult {
               ?.map((e) => PathSegmentModel.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
-      transfers: json['transfers'] as int?,
+      walkingLegs: (json['walkingLegs'] as List<dynamic>?)
+              ?.map((e) => WalkingLegModel.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      transitDistanceKm: (json['transitDistanceKm'] as num?)?.toDouble(),
+      transitTimeMinutes: (json['transitTimeMinutes'] as num?)?.toDouble(),
+      totalWalkingDistanceKm:
+          (json['totalWalkingDistanceKm'] as num?)?.toDouble(),
+      totalWalkingTimeMinutes:
+          (json['totalWalkingTimeMinutes'] as num?)?.toDouble(),
+      transfers: (json['transfers'] as num?)?.toInt(),
       optimizationScore: (json['optimizationScore'] as num?)?.toDouble(),
       optimizationType: json['optimizationType'] as String?,
     );
   }
   Map<String, dynamic> toJson() {
     return {
-      'stations':
-          stations.map((s) => (s as PathStationInfoModel).toJson()).toList(),
-      'routes': routes.map((r) => (r as PathRouteInfoModel).toJson()).toList(),
+      'stations': stations
+          .map((s) => s is PathStationInfoModel
+              ? s.toJson()
+              : {
+                  'stationCode': s.stationCode,
+                  'stationName': s.stationName,
+                  'coordinates': {
+                    'latitude': s.latitude,
+                    'longitude': s.longitude,
+                  },
+                  if (s.accessPoint != null)
+                    'accessPoint': {
+                      'latitude': s.accessPoint!.latitude,
+                      'longitude': s.accessPoint!.longitude,
+                    },
+                  if (s.snappedPoint != null)
+                    'snappedPoint': {
+                      'latitude': s.snappedPoint!.latitude,
+                      'longitude': s.snappedPoint!.longitude,
+                    },
+                  'isInAlley': s.isInAlley,
+                  if (s.walkDistanceToAccessPointKm != null)
+                    'walkDistanceToAccessPointKm':
+                        s.walkDistanceToAccessPointKm,
+                  if (s.walkTimeToAccessPointMinutes != null)
+                    'walkTimeToAccessPointMinutes':
+                        s.walkTimeToAccessPointMinutes,
+                })
+          .toList(),
+      'routes': routes
+          .map((r) => r is PathRouteInfoModel
+              ? r.toJson()
+              : {
+                  'routeCode': r.routeCode,
+                  'routeName': r.routeName,
+                })
+          .toList(),
       'totalDistance': totalDistance,
       'totalTime': totalTime,
       'totalCost': totalCost,
-      'segments':
-          segments.map((s) => (s as PathSegmentModel).toJson()).toList(),
+      'segments': segments
+          .map((s) => s is PathSegmentModel
+              ? s.toJson()
+              : {
+                  'from': s.from,
+                  'to': s.to,
+                  'routeCode': s.routeCode,
+                  'routeName': s.routeName,
+                  'distance': s.distance,
+                  'time': s.time,
+                  'cost': s.cost,
+                })
+          .toList(),
+      'walkingLegs': walkingLegs
+          .map((w) => w is WalkingLegModel
+              ? w.toJson()
+              : {
+                  'type': w.type,
+                  'fromCoordinates': {
+                    'latitude': w.fromCoordinates.latitude,
+                    'longitude': w.fromCoordinates.longitude,
+                  },
+                  'toCoordinates': {
+                    'latitude': w.toCoordinates.latitude,
+                    'longitude': w.toCoordinates.longitude,
+                  },
+                  'stationCode': w.stationCode,
+                  'stationName': w.stationName,
+                  if (w.fromStationCode != null)
+                    'fromStationCode': w.fromStationCode,
+                  if (w.fromStationName != null)
+                    'fromStationName': w.fromStationName,
+                  'distanceKm': w.distanceKm,
+                  'estimatedTimeMinutes': w.estimatedTimeMinutes,
+                })
+          .toList(),
+      if (transitDistanceKm != null) 'transitDistanceKm': transitDistanceKm,
+      if (transitTimeMinutes != null) 'transitTimeMinutes': transitTimeMinutes,
+      if (totalWalkingDistanceKm != null)
+        'totalWalkingDistanceKm': totalWalkingDistanceKm,
+      if (totalWalkingTimeMinutes != null)
+        'totalWalkingTimeMinutes': totalWalkingTimeMinutes,
       if (transfers != null) 'transfers': transfers,
       if (optimizationScore != null) 'optimizationScore': optimizationScore,
       if (optimizationType != null) 'optimizationType': optimizationType,

@@ -24,13 +24,16 @@ class _RouteListScreenState extends State<RouteListScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    // Check if routes are already loaded (from preload)
-    // Use addPostFrameCallback to ensure BLoC state is ready
+
+    // Always fetch all routes on enter (legacy behavior).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final currentState = context.read<RouteBloc>().state;
-      if (currentState is! RouteLoaded) {
-        context.read<RouteBloc>().add(const FetchAllRoutesEvent(limit: 200));
-      }
+      context.read<RouteBloc>().add(
+            FetchAllRoutesEvent(
+              limit: 200,
+              direction: _selectedDirection,
+              routeCode: '',
+            ),
+          );
     });
   }
 
@@ -54,12 +57,31 @@ class _RouteListScreenState extends State<RouteListScreen> {
   }
 
   void _onDirectionChanged(RouteDirection? direction) {
-    if (direction != null && direction != _selectedDirection) {
-      setState(() {
-        _selectedDirection = direction;
-      });
-      context.read<RouteBloc>().add(FetchAllRoutesEvent(direction: direction));
+    if (direction == null || direction == _selectedDirection) {
+      return;
     }
+
+    setState(() {
+      _selectedDirection = direction;
+    });
+
+    context.read<RouteBloc>().add(
+          FetchAllRoutesEvent(
+            page: 1,
+            limit: 200,
+            direction: direction,
+            routeCode: '',
+          ),
+        );
+  }
+
+  void _refreshRoutes() {
+    context.read<RouteBloc>().add(
+          RefreshRoutesEvent(
+            direction: _selectedDirection,
+            routeCode: '',
+          ),
+        );
   }
 
   void _onRouteSelected(BusRoute route) {
@@ -85,16 +107,16 @@ class _RouteListScreenState extends State<RouteListScreen> {
           PopupMenuButton<RouteDirection>(
             icon: const Icon(Icons.filter_list),
             onSelected: _onDirectionChanged,
-            itemBuilder: (context) => [
-              const PopupMenuItem(
+            itemBuilder: (context) => const [
+              PopupMenuItem(
                 value: RouteDirection.both,
                 child: Text('Cả hai chiều'),
               ),
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: RouteDirection.forward,
                 child: Text('Chiều đi'),
               ),
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: RouteDirection.backward,
                 child: Text('Chiều về'),
               ),
@@ -102,9 +124,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () {
-              context.read<RouteBloc>().add(const RefreshRoutesEvent());
-            },
+            onPressed: _refreshRoutes,
           ),
         ],
       ),
@@ -132,9 +152,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: () {
-                      context.read<RouteBloc>().add(const RefreshRoutesEvent());
-                    },
+                    onPressed: _refreshRoutes,
                     child: const Text('Thử lại'),
                   ),
                 ],
@@ -146,6 +164,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
             final routes = state is RouteLoaded
                 ? state.routes
                 : (state as RouteLoadingMore).currentRoutes;
+            final totalCount =
+                state is RouteLoaded ? state.totalCount : routes.length;
 
             if (routes.isEmpty) {
               return Center(
@@ -158,7 +178,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
 
             return Column(
               children: [
-                // Info bar
                 Container(
                   padding: const EdgeInsets.all(8),
                   color: scheme.surfaceContainerHighest,
@@ -170,6 +189,13 @@ class _RouteListScreenState extends State<RouteListScreen> {
                         color: scheme.onSurfaceVariant,
                       ),
                       const SizedBox(width: 8),
+                      Text(
+                        'Hiển thị ${routes.length}/$totalCount tuyến',
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const Spacer(),
                       Text(
                         _getDirectionText(),
@@ -181,7 +207,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
                     ],
                   ),
                 ),
-                // List
                 Expanded(
                   child: ListView.builder(
                     controller: _scrollController,

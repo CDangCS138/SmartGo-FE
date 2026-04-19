@@ -405,13 +405,14 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       final resolvedConversationId = response.conversationId.isEmpty
           ? _conversationId
           : response.conversationId;
+      final assistantReply = _sanitizeAssistantReply(response.reply);
 
       final updatedHistory = resolvedConversationId == null
           ? _savedConversations
           : _upsertSavedConversation(
               conversationId: resolvedConversationId,
               seedText: text,
-              latestPreview: response.reply,
+              latestPreview: assistantReply,
             );
 
       setState(() {
@@ -420,7 +421,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         _messages = [
           ..._messages,
           _UiChatMessage(
-            content: response.reply,
+            content: assistantReply,
             isFromUser: false,
             timestamp: DateTime.now(),
           ),
@@ -597,16 +598,17 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         return;
       }
 
-      final loadedMessages = response.data
-          .map(
-            (message) => _UiChatMessage(
-              content: message.content,
-              isFromUser: message.role == MessageRole.user,
-              isError: false,
-              timestamp: message.createdAt ?? DateTime.now(),
-            ),
-          )
-          .toList();
+      final loadedMessages = response.data.map((message) {
+        final isUserMessage = message.role == MessageRole.user;
+        return _UiChatMessage(
+          content: isUserMessage
+              ? message.content
+              : _sanitizeAssistantReply(message.content),
+          isFromUser: isUserMessage,
+          isError: false,
+          timestamp: message.createdAt ?? DateTime.now(),
+        );
+      }).toList();
 
       setState(() {
         _conversationId = conversationId;
@@ -782,6 +784,85 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       return trimmed;
     }
     return '${trimmed.substring(0, maxLength - 1)}...';
+  }
+
+  String _sanitizeAssistantReply(String rawText) {
+    final normalized = rawText.replaceAll('\r\n', '\n').trim();
+    if (normalized.isEmpty) {
+      return rawText;
+    }
+
+    final withoutTechnicalCodeBlocks = normalized.replaceAllMapped(
+      RegExp(r'```[\s\S]*?```'),
+      (match) {
+        final block = match.group(0) ?? '';
+        return _containsTechnicalToken(block) ? '' : block;
+      },
+    );
+
+    final lines = withoutTechnicalCodeBlocks.split('\n');
+    final keptLines = <String>[];
+
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) {
+        if (keptLines.isNotEmpty && keptLines.last.isNotEmpty) {
+          keptLines.add('');
+        }
+        continue;
+      }
+
+      if (_isTechnicalLine(trimmed)) {
+        continue;
+      }
+
+      keptLines.add(line);
+    }
+
+    final cleaned =
+        keptLines.join('\n').replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+
+    if (cleaned.isEmpty) {
+      return 'Mình đã ẩn bớt dữ liệu kỹ thuật nội bộ. Bạn hỏi lại theo tuyến, trạm hoặc điểm đi/điểm đến để mình hỗ trợ rõ ràng hơn nhé.';
+    }
+
+    return cleaned;
+  }
+
+  bool _isTechnicalLine(String line) {
+    if (_containsTechnicalToken(line)) {
+      final looksLikeTransitInfo = RegExp(
+        r'^(tuyến|trạm|tram|điểm|lộ trình|giá vé)\b',
+        caseSensitive: false,
+      ).hasMatch(line);
+      if (!looksLikeTransitInfo) {
+        return true;
+      }
+    }
+
+    if (RegExp(r'^[\[{]').hasMatch(line) && line.contains(':')) {
+      return true;
+    }
+
+    if (RegExp(r'[\]}]$').hasMatch(line) && line.contains(':')) {
+      return true;
+    }
+
+    if (RegExp(
+      r'^[\-\*\s\d\.)]*[A-Za-z_][A-Za-z0-9_]{1,30}\s*[:=]\s*(true|false)\b',
+      caseSensitive: false,
+    ).hasMatch(line)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  bool _containsTechnicalToken(String text) {
+    return RegExp(
+      r'routeid|tripid|stationid|conversationid|\bisworking\b|\brawdata\b|\bmetadata\b|\bstatuscode\b|"_id"|"id"\s*:|\bbus simulation\b|\bsse\b|\bpolling\b',
+      caseSensitive: false,
+    ).hasMatch(text);
   }
 
   String? get _activeConversationTitle {

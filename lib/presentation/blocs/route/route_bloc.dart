@@ -11,6 +11,8 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
   static const int _defaultLimit = 200;
   int _currentPage = 1;
   int _totalCount = 0;
+  RouteDirection? _currentDirection;
+  String _currentRouteCode = '';
   List<BusRoute> _allRoutes = [];
   RouteBloc({required this.repository}) : super(const RouteInitial()) {
     on<FetchAllRoutesEvent>(_onFetchAllRoutes);
@@ -24,10 +26,14 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
     Emitter<RouteState> emit,
   ) async {
     emit(const RouteLoading());
+    _currentDirection = event.direction;
+    _currentRouteCode = event.routeCode.trim();
+
     final result = await repository.getAllRoutes(
       page: event.page,
       limit: event.limit,
-      direction: event.direction,
+      direction: _currentDirection,
+      routeCode: _currentRouteCode,
     );
     await result.fold(
       (failure) async {
@@ -36,11 +42,15 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
       (routes) async {
         _currentPage = event.page;
         _allRoutes = routes;
-        final totalResult = await repository.getTotalRoutes();
-        totalResult.fold(
-          (failure) => _totalCount = routes.length,
-          (total) => _totalCount = total,
-        );
+        if (_shouldUseSummaryTotal()) {
+          final totalResult = await repository.getTotalRoutes();
+          totalResult.fold(
+            (failure) => _totalCount = routes.length,
+            (total) => _totalCount = total,
+          );
+        } else {
+          _totalCount = routes.length;
+        }
         final hasMore = routes.length >= event.limit;
         emit(RouteLoaded(
           routes: routes,
@@ -77,10 +87,17 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
   ) async {
     _currentPage = 1;
     _allRoutes = [];
+    _currentDirection = event.direction ?? _currentDirection;
+    if (event.routeCode != null) {
+      _currentRouteCode = event.routeCode!.trim();
+    }
+
     emit(const RouteLoading());
     final result = await repository.getAllRoutes(
       page: 1,
       limit: _defaultLimit,
+      direction: _currentDirection,
+      routeCode: _currentRouteCode,
     );
     await result.fold(
       (failure) async {
@@ -89,11 +106,15 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
       (routes) async {
         _allRoutes = routes;
         _currentPage = 1;
-        final totalResult = await repository.getTotalRoutes();
-        totalResult.fold(
-          (failure) => _totalCount = routes.length,
-          (total) => _totalCount = total,
-        );
+        if (_shouldUseSummaryTotal()) {
+          final totalResult = await repository.getTotalRoutes();
+          totalResult.fold(
+            (failure) => _totalCount = routes.length,
+            (total) => _totalCount = total,
+          );
+        } else {
+          _totalCount = routes.length;
+        }
         final hasMore = routes.length >= _defaultLimit;
         emit(RouteLoaded(
           routes: routes,
@@ -122,6 +143,8 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
       final result = await repository.getAllRoutes(
         page: nextPage,
         limit: _defaultLimit,
+        direction: _currentDirection,
+        routeCode: _currentRouteCode,
       );
       await result.fold(
         (failure) async {
@@ -168,6 +191,11 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
         emit(PathsFound(paths: paths));
       },
     );
+  }
+
+  bool _shouldUseSummaryTotal() {
+    return _currentRouteCode.isEmpty &&
+        (_currentDirection == null || _currentDirection == RouteDirection.both);
   }
 
   /// Singleton — do not close. The app-level BlocProvider.value or any

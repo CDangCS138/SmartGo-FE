@@ -203,3 +203,24 @@ class RouteResponse {
     );
   }
 }
+
+class RouteSummaryResponse {
+  final int routeCount;
+  final int stationCount;
+
+  const RouteSummaryResponse({
+    required this.routeCount,
+    required this.stationCount,
+  });
+
+  factory RouteSummaryResponse.fromJson(Map<String, dynamic> json) {
+    final payload = json['data'] is Map<String, dynamic>
+        ? json['data'] as Map<String, dynamic>
+        : json;
+
+    return RouteSummaryResponse(
+      routeCount: (payload['routeCount'] as num?)?.toInt() ?? 0,
+      stationCount: (payload['stationCount'] as num?)?.toInt() ?? 0,
+    );
+  }
+}

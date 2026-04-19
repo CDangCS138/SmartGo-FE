@@ -544,7 +544,9 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
     _loadLivePositionsForSelectedRoute(silent: true);
 
     if (showNotice) {
-      _showToast('SSE lỗi, đã chuyển sang polling mỗi 5 giây.');
+      _showToast(
+        'Kết nối trực tiếp chưa ổn định, ứng dụng sẽ tự cập nhật vị trí mỗi vài giây.',
+      );
     }
   }
 
@@ -656,7 +658,9 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
     _loadStationEtaForSelectedStation(silent: true);
 
     if (showNotice) {
-      _showToast('SSE trạm lỗi, đã chuyển sang polling mỗi 5 giây.');
+      _showToast(
+        'Kết nối trực tiếp tại trạm chưa ổn định, ứng dụng sẽ tự cập nhật xe đến mỗi vài giây.',
+      );
     }
   }
 
@@ -1403,7 +1407,11 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
                   ),
                 ),
                 Text(
-                  'Thời gian thực ${_routeRealtimeEnabled ? _routeRealtimeMode.toUpperCase() : 'TẮT'}',
+                  _routeRealtimeEnabled
+                      ? (_routeRealtimeMode == 'sse'
+                          ? 'Đang theo dõi trực tiếp'
+                          : 'Đang tự động làm mới')
+                      : 'Đã tạm dừng cập nhật',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 11,
@@ -1637,7 +1645,7 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
         _buildMetaLine(
           left: '${etas.length} xe sắp tới',
           right:
-              'Thời gian thực ${_stationRealtimeEnabled ? _stationRealtimeMode.toUpperCase() : 'TẮT'} | Cập nhật ${_fmtClock(_stationEtaUpdatedAt)}',
+              '${_stationRealtimeEnabled ? (_stationRealtimeMode == 'sse' ? 'Đang theo dõi trực tiếp' : 'Đang tự động làm mới') : 'Đã tạm dừng cập nhật'} | Cập nhật ${_fmtClock(_stationEtaUpdatedAt)}',
         ),
         const SizedBox(height: AppSizes.sm),
         if (_isStationEtaLoading)
@@ -1682,14 +1690,6 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: AppSizes.xs),
-                    Text(
-                      'Chuyến ${item.tripId}',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontSize: 12,
-                      ),
                     ),
                     const SizedBox(height: AppSizes.xs),
                     Text(
@@ -2012,7 +2012,7 @@ class _TripDetailSheetState extends State<_TripDetailSheet> {
       }
     }
 
-    return stationId;
+    return 'Đang cập nhật tên trạm';
   }
 
   @override
@@ -2068,7 +2068,11 @@ class _TripDetailSheetState extends State<_TripDetailSheet> {
                         .withValues(alpha: 0.8),
                   ),
                   child: Text(
-                    'Thời gian thực ${_realtimeEnabled ? _realtimeMode.toUpperCase() : 'TẮT'}',
+                    _realtimeEnabled
+                        ? (_realtimeMode == 'sse'
+                            ? 'Đang theo dõi trực tiếp'
+                            : 'Đang tự động làm mới')
+                        : 'Đã tạm dừng cập nhật',
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontSize: 11,
@@ -2079,16 +2083,6 @@ class _TripDetailSheetState extends State<_TripDetailSheet> {
               ],
             ),
             const SizedBox(height: AppSizes.xs),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Mã chuyến: ${widget.tripId}',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontSize: 12,
-                ),
-              ),
-            ),
             const SizedBox(height: AppSizes.sm),
             if (_isLoading && value == null)
               const Padding(
@@ -2206,7 +2200,7 @@ class _TripDetailSheetState extends State<_TripDetailSheet> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        '[${eta.stationIndex}] ${eta.stationName}',
+                                        eta.stationName,
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w600,
                                         ),

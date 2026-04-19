@@ -30,7 +30,7 @@ class AppRouter {
 
   late final GoRouter router = GoRouter(
     initialLocation: AppRoutes.login,
-    debugLogDiagnostics: true,
+    debugLogDiagnostics: false,
     redirect: _authGuard,
     refreshListenable: GoRouterRefreshStream(authBloc.stream),
     routes: [
@@ -165,14 +165,26 @@ class AppRouter {
     ),
   );
   String? _authGuard(BuildContext context, GoRouterState state) {
-    if (state.matchedLocation == AppRoutes.momoPaymentCallbackApiCompat) {
+    final currentPath = _normalizePath(state.uri.path);
+
+    if (currentPath == '/api/v1/auth/google/callback') {
+      final query = state.uri.query;
+      return query.isEmpty ? AppRoutes.login : '${AppRoutes.login}?$query';
+    }
+
+    if (currentPath != state.uri.path) {
+      final query = state.uri.query;
+      return query.isEmpty ? currentPath : '$currentPath?$query';
+    }
+
+    if (currentPath == AppRoutes.momoPaymentCallbackApiCompat) {
       final query = state.uri.query;
       return query.isEmpty
           ? AppRoutes.momoPaymentCallback
           : '${AppRoutes.momoPaymentCallback}?$query';
     }
 
-    if (state.matchedLocation == AppRoutes.vnpayPaymentCallbackApiCompat) {
+    if (currentPath == AppRoutes.vnpayPaymentCallbackApiCompat) {
       final query = state.uri.query;
       return query.isEmpty
           ? AppRoutes.vnpayPaymentCallback
@@ -180,13 +192,13 @@ class AppRouter {
     }
 
     final isAuthenticated = authBloc.state is AuthAuthenticated;
-    final isLoginRoute = state.matchedLocation == AppRoutes.login;
-    final isRegisterRoute = state.matchedLocation == AppRoutes.register;
+    final isLoginRoute = currentPath == AppRoutes.login;
+    final isRegisterRoute = currentPath == AppRoutes.register;
     final isPaymentCallbackRoute =
-        state.matchedLocation == AppRoutes.momoPaymentCallback ||
-            state.matchedLocation == AppRoutes.vnpayPaymentCallback ||
-            state.matchedLocation == AppRoutes.momoPaymentCallbackApiCompat ||
-            state.matchedLocation == AppRoutes.vnpayPaymentCallbackApiCompat;
+        currentPath == AppRoutes.momoPaymentCallback ||
+            currentPath == AppRoutes.vnpayPaymentCallback ||
+            currentPath == AppRoutes.momoPaymentCallbackApiCompat ||
+            currentPath == AppRoutes.vnpayPaymentCallbackApiCompat;
 
     // If not authenticated and trying to access protected route, redirect to login
     if (!isAuthenticated &&
@@ -202,6 +214,21 @@ class AppRouter {
     }
 
     return null;
+  }
+
+  String _normalizePath(String rawPath) {
+    var normalizedPath = rawPath;
+
+    if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
+      normalizedPath = normalizedPath.substring(0, normalizedPath.length - 1);
+    }
+
+    // Support legacy auth links so users do not hit notfound.
+    if (normalizedPath == '/auth/login' || normalizedPath == '/signin') {
+      return AppRoutes.login;
+    }
+
+    return normalizedPath;
   }
 }
 
