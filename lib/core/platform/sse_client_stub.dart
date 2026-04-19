@@ -11,6 +11,16 @@ class _StubSseClient implements SseClient {
   }
 
   @override
+  Stream<SseEvent> connectToEvents(
+    Uri uri, {
+    List<String> eventNames = const [],
+  }) {
+    return Stream<SseEvent>.error(
+      UnsupportedError('SSE is only available on Flutter web.'),
+    );
+  }
+
+  @override
   void close() {}
 }
 

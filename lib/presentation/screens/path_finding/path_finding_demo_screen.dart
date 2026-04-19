@@ -9,6 +9,7 @@ import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:smartgo/core/di/injection.dart';
+import 'package:smartgo/core/logging/app_logger.dart';
 import 'package:smartgo/core/services/text_to_speech_service.dart';
 import 'package:smartgo/core/services/route_geometry_service.dart';
 import 'package:smartgo/core/themes/app_colors.dart';
@@ -62,6 +63,33 @@ class _PathGeometryLoadResult {
   });
 }
 
+class _PathGeometryCacheEntry {
+  final PathResult pathWithMetadata;
+  final List<LatLng> transitGeometry;
+  final List<List<LatLng>> transitGeometrySegments;
+  final List<List<LatLng>> walkingGeometrySegments;
+  final List<TransitStationAccessPoint> accessPoints;
+
+  const _PathGeometryCacheEntry({
+    required this.pathWithMetadata,
+    required this.transitGeometry,
+    required this.transitGeometrySegments,
+    required this.walkingGeometrySegments,
+    required this.accessPoints,
+  });
+
+  _PathGeometryLoadResult toLoadResult(int index) {
+    return _PathGeometryLoadResult(
+      index: index,
+      pathWithMetadata: pathWithMetadata,
+      transitGeometry: transitGeometry,
+      transitGeometrySegments: transitGeometrySegments,
+      walkingGeometrySegments: walkingGeometrySegments,
+      accessPoints: accessPoints,
+    );
+  }
+}
+
 class PathFindingDemoScreen extends StatefulWidget {
   const PathFindingDemoScreen({super.key});
 
@@ -99,8 +127,12 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   final Map<int, List<List<LatLng>>> _pathRouteGeometrySegmentsCache = {};
   final Map<int, List<List<LatLng>>> _pathWalkingGeometrySegmentsCache = {};
   final Map<int, List<TransitStationAccessPoint>> _pathTransitAccessCache = {};
+  final Map<String, _PathGeometryCacheEntry> _pathGeometryByKeyCache = {};
+  final List<String> _pathGeometryByKeyOrder = [];
   bool _isLoadingGeometry = false;
   int _routeGeometryRequestId = 0;
+
+  static const int _maxPathGeometryByKeyCacheEntries = 24;
 
   // Address search
   final TextEditingController _fromAddressController = TextEditingController();
@@ -735,6 +767,172 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     }
 
     return merged;
+  }
+
+  String _buildPathGeometryCacheKey(
+    PathResult path, {
+    required bool includeWalkingGeometry,
+  }) {
+    final stationKey = path.stations
+        .map(
+          (station) =>
+              '${_normalizeStationIdentity(station.stationCode)}@${station.latitude.toStringAsFixed(6)},${station.longitude.toStringAsFixed(6)}',
+        )
+        .join(';');
+
+    final segmentKey = path.segments
+        .map(
+          (segment) =>
+              '${_normalizeStationIdentity(segment.routeCode)}:${_normalizeStationIdentity(segment.from)}>${_normalizeStationIdentity(segment.to)}',
+        )
+        .join('|');
+
+    final walkingKey = includeWalkingGeometry
+        ? _walkingLegsForMap(path)
+            .map(
+              (leg) =>
+                  '${leg.normalizedType}:${_normalizeStationIdentity(leg.fromStationCode ?? '')}>${_normalizeStationIdentity(leg.stationCode)}@${leg.fromCoordinates.latitude.toStringAsFixed(6)},${leg.fromCoordinates.longitude.toStringAsFixed(6)}-${leg.toCoordinates.latitude.toStringAsFixed(6)},${leg.toCoordinates.longitude.toStringAsFixed(6)}',
+            )
+            .join('|')
+        : 'no-walking';
+
+    return '$stationKey#$segmentKey#$walkingKey';
+  }
+
+  void _cachePathGeometryByKey(
+    String cacheKey,
+    _PathGeometryLoadResult result,
+  ) {
+    _pathGeometryByKeyCache[cacheKey] = _PathGeometryCacheEntry(
+      pathWithMetadata: result.pathWithMetadata,
+      transitGeometry: result.transitGeometry,
+      transitGeometrySegments: result.transitGeometrySegments,
+      walkingGeometrySegments: result.walkingGeometrySegments,
+      accessPoints: result.accessPoints,
+    );
+
+    _pathGeometryByKeyOrder.remove(cacheKey);
+    _pathGeometryByKeyOrder.add(cacheKey);
+    if (_pathGeometryByKeyOrder.length <= _maxPathGeometryByKeyCacheEntries) {
+      return;
+    }
+
+    final keyToRemove = _pathGeometryByKeyOrder.removeAt(0);
+    _pathGeometryByKeyCache.remove(keyToRemove);
+  }
+
+  Map<String, int> _snapshotOsrmRequestStats() {
+    return _routeGeometryService.getOsrmRequestStatsSnapshot();
+  }
+
+  void _logOsrmRequestStatsDelta(
+    String scope,
+    Map<String, int> before,
+    Map<String, int> after,
+  ) {
+    final routeDelta = (after['route'] ?? 0) - (before['route'] ?? 0);
+    final matchDelta = (after['match'] ?? 0) - (before['match'] ?? 0);
+    final nearestDelta = (after['nearest'] ?? 0) - (before['nearest'] ?? 0);
+    final walkingDelta = (after['walking'] ?? 0) - (before['walking'] ?? 0);
+    final totalDelta = routeDelta + matchDelta + nearestDelta + walkingDelta;
+
+    if (totalDelta <= 0) {
+      return;
+    }
+
+    AppLogger.info(
+      '$scope OSRM delta route=$routeDelta match=$matchDelta nearest=$nearestDelta walking=$walkingDelta total=$totalDelta',
+    );
+  }
+
+  List<LatLng> _buildStationGroupWaypoints(List<PathStationInfo> stationGroup) {
+    return stationGroup
+        .map((station) => station.busAccessCoordinate)
+        .map((coordinate) => LatLng(coordinate.latitude, coordinate.longitude))
+        .toList(growable: false);
+  }
+
+  int _findNearestGeometryIndexForward(
+    List<LatLng> geometry,
+    LatLng anchor, {
+    required int startIndex,
+  }) {
+    if (geometry.isEmpty) {
+      return -1;
+    }
+
+    var safeStartIndex = startIndex;
+    if (safeStartIndex < 0) {
+      safeStartIndex = 0;
+    }
+    if (safeStartIndex >= geometry.length) {
+      return -1;
+    }
+
+    var bestIndex = -1;
+    var bestDistanceKm = double.infinity;
+
+    for (var i = safeStartIndex; i < geometry.length; i++) {
+      final distanceKm = _calculateDistance(geometry[i], anchor);
+      if (distanceKm < bestDistanceKm) {
+        bestDistanceKm = distanceKm;
+        bestIndex = i;
+      }
+    }
+
+    const maxAnchorSnapDistanceKm = 1.0;
+    if (bestDistanceKm > maxAnchorSnapDistanceKm) {
+      return -1;
+    }
+
+    return bestIndex;
+  }
+
+  List<List<LatLng>> _splitGeometryByStationGroups({
+    required List<LatLng> fullGeometry,
+    required List<List<PathStationInfo>> stationGroups,
+  }) {
+    if (fullGeometry.length < 2 || stationGroups.isEmpty) {
+      return const <List<LatLng>>[];
+    }
+
+    final segments = <List<LatLng>>[];
+    var searchStartIndex = 0;
+
+    for (final stationGroup in stationGroups) {
+      final groupWaypoints = _buildStationGroupWaypoints(stationGroup);
+      if (groupWaypoints.length < 2) {
+        continue;
+      }
+
+      final startIndex = _findNearestGeometryIndexForward(
+        fullGeometry,
+        groupWaypoints.first,
+        startIndex: searchStartIndex,
+      );
+      final endIndex = startIndex == -1
+          ? -1
+          : _findNearestGeometryIndexForward(
+              fullGeometry,
+              groupWaypoints.last,
+              startIndex: startIndex,
+            );
+
+      if (startIndex == -1 || endIndex == -1 || endIndex <= startIndex) {
+        segments.add(groupWaypoints);
+        continue;
+      }
+
+      final sliced = fullGeometry.sublist(startIndex, endIndex + 1);
+      if (sliced.length >= 2) {
+        segments.add(sliced);
+        searchStartIndex = endIndex;
+      } else {
+        segments.add(groupWaypoints);
+      }
+    }
+
+    return segments;
   }
 
   List<TransitStationAccessPoint> _safeSelectedTransitAccessPoints() {
@@ -1422,8 +1620,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       return const <List<LatLng>>[];
     }
 
-    final segments = <List<LatLng>>[];
-    for (final leg in walkingLegs) {
+    final segmentFutures = walkingLegs.map((leg) async {
       final from = LatLng(
         leg.fromCoordinates.latitude,
         leg.fromCoordinates.longitude,
@@ -1434,8 +1631,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       );
 
       if (_calculateDistance(from, to) <= 0) {
-        segments.add(<LatLng>[from, to]);
-        continue;
+        return <LatLng>[from, to];
       }
 
       final geometry = await _routeGeometryService.getWalkingGeometry(
@@ -1443,13 +1639,13 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         to: to,
       );
       if (geometry.length >= 2) {
-        segments.add(geometry);
-      } else {
-        segments.add(<LatLng>[from, to]);
+        return geometry;
       }
-    }
 
-    return segments;
+      return <LatLng>[from, to];
+    }).toList(growable: false);
+
+    return Future.wait(segmentFutures);
   }
 
   Future<_PathGeometryLoadResult> _resolvePathGeometry({
@@ -1469,6 +1665,15 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         walkingGeometrySegments: const <List<LatLng>>[],
         accessPoints: const [],
       );
+    }
+
+    final geometryCacheKey = _buildPathGeometryCacheKey(
+      path,
+      includeWalkingGeometry: includeWalkingGeometry,
+    );
+    final cachedByKey = _pathGeometryByKeyCache[geometryCacheKey];
+    if (cachedByKey != null) {
+      return cachedByKey.toLoadResult(index);
     }
 
     final stopCoordinates = path.stations
@@ -1505,28 +1710,12 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         transitGeometrySegments.add(resolvedGeometry);
       }
     } else {
-      for (final stationGroup in stationGroups) {
-        final drivingWaypoints = stationGroup
-            .map((station) => station.busAccessCoordinate)
-            .map((coordinate) =>
-                LatLng(coordinate.latitude, coordinate.longitude))
-            .toList(growable: false);
-
-        if (drivingWaypoints.length < 2) {
-          continue;
-        }
-
-        final segmentGeometry =
-            await _routeGeometryService.getDrivingGeometryWithoutSnapping(
-          drivingWaypoints,
-        );
-
-        if (segmentGeometry.length >= 2) {
-          transitGeometrySegments.add(segmentGeometry);
-        } else {
-          transitGeometrySegments.add(drivingWaypoints);
-        }
-      }
+      transitGeometrySegments.addAll(
+        _splitGeometryByStationGroups(
+          fullGeometry: resolvedGeometry,
+          stationGroups: stationGroups,
+        ),
+      );
     }
 
     final resolvedSegments = transitGeometrySegments.isNotEmpty
@@ -1537,7 +1726,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
     final flattenedGeometry = _flattenTransitGeometrySegments(resolvedSegments);
 
-    return _PathGeometryLoadResult(
+    final resolvedResult = _PathGeometryLoadResult(
       index: index,
       pathWithMetadata: pathWithAccessMetadata,
       transitGeometry:
@@ -1546,6 +1735,9 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       walkingGeometrySegments: walkingGeometrySegments,
       accessPoints: transitResult.stationAccessPoints,
     );
+
+    _cachePathGeometryByKey(geometryCacheKey, resolvedResult);
+    return resolvedResult;
   }
 
   void _syncSelectedPathGeometryCache() {
@@ -1571,6 +1763,8 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     setState(() {
       _isLoadingGeometry = true;
     });
+
+    final osrmStatsBefore = _snapshotOsrmRequestStats();
 
     try {
       final result = await _resolvePathGeometry(
@@ -1624,6 +1818,13 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       setState(() {
         _isLoadingGeometry = false;
       });
+    } finally {
+      final osrmStatsAfter = _snapshotOsrmRequestStats();
+      _logOsrmRequestStatsDelta(
+        'Path geometry index=$pathIndex',
+        osrmStatsBefore,
+        osrmStatsAfter,
+      );
     }
   }
 
@@ -1638,75 +1839,87 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       _isLoadingGeometry = true;
     });
 
-    final updatedPaths = List<PathResult>.from(currentPaths);
-    final nextGeometryCache = <int, List<LatLng>>{};
-    final nextGeometrySegmentsCache = <int, List<List<LatLng>>>{};
-    final nextWalkingGeometrySegmentsCache = <int, List<List<LatLng>>>{};
-    final nextAccessCache = <int, List<TransitStationAccessPoint>>{};
-    final selectedIndex = (_selectedPathIndex != null &&
-            _selectedPathIndex! >= 0 &&
-            _selectedPathIndex! < currentPaths.length)
-        ? _selectedPathIndex!
-        : 0;
+    final osrmStatsBefore = _snapshotOsrmRequestStats();
 
-    final selectedPath = updatedPaths[selectedIndex];
-    _PathGeometryLoadResult result;
     try {
-      result = await _resolvePathGeometry(
-        index: selectedIndex,
-        path: selectedPath,
-        includeWalkingGeometry: true,
-      );
-    } catch (_) {
-      final fallbackGeometry = _buildTransitDrivingWaypoints(selectedPath);
-      result = _PathGeometryLoadResult(
-        index: selectedIndex,
-        pathWithMetadata: selectedPath,
-        transitGeometry: fallbackGeometry,
-        transitGeometrySegments: fallbackGeometry.length >= 2
-            ? <List<LatLng>>[fallbackGeometry]
-            : const <List<LatLng>>[],
-        walkingGeometrySegments: const <List<LatLng>>[],
-        accessPoints: const [],
-      );
-    }
+      final updatedPaths = List<PathResult>.from(currentPaths);
+      final nextGeometryCache = <int, List<LatLng>>{};
+      final nextGeometrySegmentsCache = <int, List<List<LatLng>>>{};
+      final nextWalkingGeometrySegmentsCache = <int, List<List<LatLng>>>{};
+      final nextAccessCache = <int, List<TransitStationAccessPoint>>{};
+      final selectedIndex = (_selectedPathIndex != null &&
+              _selectedPathIndex! >= 0 &&
+              _selectedPathIndex! < currentPaths.length)
+          ? _selectedPathIndex!
+          : 0;
 
-    if (result.index < updatedPaths.length) {
-      updatedPaths[result.index] = result.pathWithMetadata;
-    }
-    if (result.transitGeometry.length >= 2) {
-      nextGeometryCache[result.index] = result.transitGeometry;
-    }
-    if (result.transitGeometrySegments.isNotEmpty) {
-      nextGeometrySegmentsCache[result.index] = result.transitGeometrySegments;
-    }
-    if (result.walkingGeometrySegments.isNotEmpty) {
-      nextWalkingGeometrySegmentsCache[result.index] =
-          result.walkingGeometrySegments;
-    }
-    nextAccessCache[result.index] = result.accessPoints;
+      final selectedPath = updatedPaths[selectedIndex];
+      _PathGeometryLoadResult result;
+      try {
+        result = await _resolvePathGeometry(
+          index: selectedIndex,
+          path: selectedPath,
+          includeWalkingGeometry: true,
+        );
+      } catch (_) {
+        final fallbackGeometry = _buildTransitDrivingWaypoints(selectedPath);
+        result = _PathGeometryLoadResult(
+          index: selectedIndex,
+          pathWithMetadata: selectedPath,
+          transitGeometry: fallbackGeometry,
+          transitGeometrySegments: fallbackGeometry.length >= 2
+              ? <List<LatLng>>[fallbackGeometry]
+              : const <List<LatLng>>[],
+          walkingGeometrySegments: const <List<LatLng>>[],
+          accessPoints: const [],
+        );
+      }
 
-    if (!mounted || requestId != _routeGeometryRequestId) {
-      return;
-    }
+      if (result.index < updatedPaths.length) {
+        updatedPaths[result.index] = result.pathWithMetadata;
+      }
+      if (result.transitGeometry.length >= 2) {
+        nextGeometryCache[result.index] = result.transitGeometry;
+      }
+      if (result.transitGeometrySegments.isNotEmpty) {
+        nextGeometrySegmentsCache[result.index] =
+            result.transitGeometrySegments;
+      }
+      if (result.walkingGeometrySegments.isNotEmpty) {
+        nextWalkingGeometrySegmentsCache[result.index] =
+            result.walkingGeometrySegments;
+      }
+      nextAccessCache[result.index] = result.accessPoints;
 
-    setState(() {
-      _paths = updatedPaths;
-      _safeReplaceGeometryCaches(
-        routeGeometry: nextGeometryCache,
-        routeGeometrySegments: nextGeometrySegmentsCache,
-        walkingGeometrySegments: nextWalkingGeometrySegmentsCache,
-        transitAccess: nextAccessCache,
-      );
-      _syncSelectedPathGeometryCache();
-      _isLoadingGeometry = false;
-    });
+      if (!mounted || requestId != _routeGeometryRequestId) {
+        return;
+      }
 
-    final selectedPathAfterSync = _selectedPath();
-    if (selectedPathAfterSync != null) {
-      _fitMapToPath(
-        selectedPathAfterSync,
-        preferredPoints: _safeRouteGeometryFromCache(selectedIndex),
+      setState(() {
+        _paths = updatedPaths;
+        _safeReplaceGeometryCaches(
+          routeGeometry: nextGeometryCache,
+          routeGeometrySegments: nextGeometrySegmentsCache,
+          walkingGeometrySegments: nextWalkingGeometrySegmentsCache,
+          transitAccess: nextAccessCache,
+        );
+        _syncSelectedPathGeometryCache();
+        _isLoadingGeometry = false;
+      });
+
+      final selectedPathAfterSync = _selectedPath();
+      if (selectedPathAfterSync != null) {
+        _fitMapToPath(
+          selectedPathAfterSync,
+          preferredPoints: _safeRouteGeometryFromCache(selectedIndex),
+        );
+      }
+    } finally {
+      final osrmStatsAfter = _snapshotOsrmRequestStats();
+      _logOsrmRequestStatsDelta(
+        'Path geometry selected-path preload',
+        osrmStatsBefore,
+        osrmStatsAfter,
       );
     }
   }

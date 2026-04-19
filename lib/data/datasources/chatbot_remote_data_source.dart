@@ -8,6 +8,8 @@ import '../../core/errors/exceptions.dart';
 import '../models/chatbot_models.dart';
 
 class ChatbotRemoteDataSource {
+  static const int streamMessageEncodedLimit = 500;
+
   final http.Client client;
   final String baseUrl;
 
@@ -39,6 +41,54 @@ class ChatbotRemoteDataSource {
 
     final jsonBody = _decodeBody(response.body);
     return ChatbotChatResponse.fromJson(jsonBody);
+  }
+
+  bool shouldUseStreaming({
+    required String message,
+    required String? token,
+  }) {
+    final normalizedMessage = message.trim();
+    final normalizedToken = (token ?? '').trim();
+
+    if (normalizedMessage.isEmpty || normalizedToken.isEmpty) {
+      return false;
+    }
+
+    return Uri.encodeQueryComponent(normalizedMessage).length <=
+        streamMessageEncodedLimit;
+  }
+
+  Uri chatStreamUri({
+    required String message,
+    required String token,
+    String? conversationId,
+  }) {
+    final normalizedConversationId = (conversationId ?? '').trim();
+
+    return Uri.parse('$baseUrl/api/v1/chatbot/chat/stream').replace(
+      queryParameters: {
+        'message': message,
+        'token': token,
+        if (normalizedConversationId.isNotEmpty)
+          'conversationId': normalizedConversationId,
+      },
+    );
+  }
+
+  ChatbotStreamMeta parseChatStreamMeta(String payload) {
+    return ChatbotStreamMeta.fromJson(_decodeStreamPayload(payload));
+  }
+
+  ChatbotStreamChunk parseChatStreamChunk(String payload) {
+    return ChatbotStreamChunk.fromJson(_decodeStreamPayload(payload));
+  }
+
+  ChatbotStreamDone parseChatStreamDone(String payload) {
+    return ChatbotStreamDone.fromJson(_decodeStreamPayload(payload));
+  }
+
+  ChatbotStreamError parseChatStreamError(String payload) {
+    return ChatbotStreamError.fromJson(_decodeStreamPayload(payload));
   }
 
   Future<ChatbotEmbeddedVector> embedKnowledge({
@@ -111,6 +161,26 @@ class ChatbotRemoteDataSource {
       return parsed;
     }
     throw const ServerException('Response khong hop le');
+  }
+
+  Map<String, dynamic> _decodeStreamPayload(String payload) {
+    final trimmed = payload.trim();
+    if (trimmed.isEmpty) {
+      return <String, dynamic>{};
+    }
+
+    final parsed = json.decode(trimmed);
+    if (parsed is Map<String, dynamic>) {
+      return parsed;
+    }
+
+    if (parsed is Map) {
+      return parsed.map(
+        (key, value) => MapEntry(key.toString(), value),
+      );
+    }
+
+    throw const ServerException('SSE payload khong hop le');
   }
 
   Exception _errorFromResponse(http.Response response, String fallback) {

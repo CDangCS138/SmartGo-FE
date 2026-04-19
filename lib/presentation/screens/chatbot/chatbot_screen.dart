@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/di/injection.dart';
+import '../../../core/platform/sse_client.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/themes/app_colors.dart';
@@ -39,8 +42,12 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   late final ChatbotRemoteDataSource _chatbotDataSource;
   late final MessageRemoteDataSource _messageDataSource;
 
+  SseClient? _chatSseClient;
+  StreamSubscription<SseEvent>? _chatSseSubscription;
+
   List<_UiChatMessage> _messages = const [];
   bool _isSending = false;
+  bool _isAssistantStreaming = false;
   bool _isLoadingHistory = false;
   String? _conversationId;
   List<_SavedConversation> _savedConversations = const [];
@@ -56,6 +63,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   @override
   void dispose() {
+    _stopChatStream();
     _messageController.dispose();
     _scrollController.dispose();
     _client.close();
@@ -337,7 +345,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       );
     }
 
-    final itemCount = _messages.length + (_isSending ? 1 : 0);
+    final showTypingIndicator = _isSending && !_isAssistantStreaming;
+    final itemCount = _messages.length + (showTypingIndicator ? 1 : 0);
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -360,7 +369,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         itemCount: itemCount,
         separatorBuilder: (_, __) => const SizedBox(height: AppSizes.sm),
         itemBuilder: (context, index) {
-          if (index >= _messages.length) {
+          if (showTypingIndicator && index >= _messages.length) {
             return const _TypingIndicatorBubble();
           }
           return _ChatBubble(message: _messages[index]);
@@ -385,27 +394,36 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     setState(() {
       _messages = [..._messages, userMessage];
       _isSending = true;
+      _isAssistantStreaming = false;
       _errorText = null;
     });
     _scrollToBottom();
 
-    final accessToken = getIt<StorageService>().getAuthToken();
+    final rawAccessToken = getIt<StorageService>().getAuthToken();
+    final accessToken = (rawAccessToken ?? '').trim();
+    final useStreaming = kIsWeb &&
+        _chatbotDataSource.shouldUseStreaming(
+          message: text,
+          token: accessToken,
+        );
 
     try {
-      final response = await _chatbotDataSource.chat(
-        message: text,
-        conversationId: _conversationId,
-        accessToken: accessToken,
-      );
+      final response = useStreaming
+          ? await _sendMessageStreaming(
+              message: text,
+              accessToken: accessToken,
+            )
+          : await _sendMessageNonStreaming(
+              message: text,
+              accessToken: rawAccessToken,
+            );
 
       if (!mounted) {
         return;
       }
 
-      final resolvedConversationId = response.conversationId.isEmpty
-          ? _conversationId
-          : response.conversationId;
       final assistantReply = _sanitizeAssistantReply(response.reply);
+      final resolvedConversationId = response.conversationId;
 
       final updatedHistory = resolvedConversationId == null
           ? _savedConversations
@@ -418,6 +436,15 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       setState(() {
         _conversationId = resolvedConversationId;
         _savedConversations = updatedHistory;
+
+        if (useStreaming) {
+          _replaceLatestAssistantMessage(
+            content: assistantReply,
+            isError: false,
+          );
+          return;
+        }
+
         _messages = [
           ..._messages,
           _UiChatMessage(
@@ -438,27 +465,243 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         return;
       }
 
+      final hasAssistantMessage =
+          _messages.isNotEmpty && !_messages.last.isFromUser;
+
       setState(() {
         _errorText = 'Không gửi được tin nhắn: $e';
-        _messages = [
-          ..._messages,
-          _UiChatMessage(
-            content:
-                'Hệ thống AI đang gặp lỗi tạm thời. Bạn thử lại sau ít giây.',
-            isFromUser: false,
-            isError: true,
-            timestamp: DateTime.now(),
-          ),
-        ];
+
+        if (!hasAssistantMessage) {
+          _messages = [
+            ..._messages,
+            _UiChatMessage(
+              content:
+                  'Hệ thống AI đang gặp lỗi tạm thời. Bạn thử lại sau ít giây.',
+              isFromUser: false,
+              isError: true,
+              timestamp: DateTime.now(),
+            ),
+          ];
+          return;
+        }
+
+        _replaceLatestAssistantMessage(
+          content: _messages.last.content,
+          isError: true,
+        );
       });
       _scrollToBottom();
     } finally {
+      _stopChatStream();
       if (mounted) {
         setState(() {
           _isSending = false;
+          _isAssistantStreaming = false;
         });
       }
     }
+  }
+
+  Future<_ChatSendResult> _sendMessageNonStreaming({
+    required String message,
+    String? accessToken,
+  }) async {
+    final response = await _chatbotDataSource.chat(
+      message: message,
+      conversationId: _conversationId,
+      accessToken: accessToken,
+    );
+
+    final resolvedConversationId = response.conversationId.isEmpty
+        ? _conversationId
+        : response.conversationId;
+
+    return _ChatSendResult(
+      reply: response.reply,
+      conversationId: resolvedConversationId,
+    );
+  }
+
+  Future<_ChatSendResult> _sendMessageStreaming({
+    required String message,
+    required String accessToken,
+  }) async {
+    _stopChatStream();
+
+    final uri = _chatbotDataSource.chatStreamUri(
+      message: message,
+      token: accessToken,
+      conversationId: _conversationId,
+    );
+
+    final completer = Completer<_ChatSendResult>();
+    final buffer = StringBuffer();
+    String? resolvedConversationId = _conversationId;
+    bool hasAssistantMessage = false;
+
+    void upsertAssistantMessage(String content) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isAssistantStreaming = true;
+
+        final shouldInsert = !hasAssistantMessage ||
+            _messages.isEmpty ||
+            _messages.last.isFromUser;
+
+        if (shouldInsert) {
+          _messages = [
+            ..._messages,
+            _UiChatMessage(
+              content: content,
+              isFromUser: false,
+              timestamp: DateTime.now(),
+            ),
+          ];
+          hasAssistantMessage = true;
+          return;
+        }
+
+        _replaceLatestAssistantMessage(
+          content: content,
+          isError: false,
+        );
+      });
+      _scrollToBottom();
+    }
+
+    void completeSuccess(String reply) {
+      if (!completer.isCompleted) {
+        completer.complete(
+          _ChatSendResult(
+            reply: reply,
+            conversationId: resolvedConversationId,
+          ),
+        );
+      }
+    }
+
+    void completeFailure(Object error) {
+      if (!completer.isCompleted) {
+        completer.completeError(error);
+      }
+    }
+
+    final sseClient = createSseClient();
+    _chatSseClient = sseClient;
+
+    _chatSseSubscription = sseClient.connectToEvents(
+      uri,
+      eventNames: const ['meta', 'chunk', 'done', 'error'],
+    ).listen(
+      (event) {
+        try {
+          switch (event.event) {
+            case 'meta':
+              final meta = _chatbotDataSource.parseChatStreamMeta(event.data);
+              final streamConversationId = meta.conversationId.trim();
+              if (streamConversationId.isNotEmpty) {
+                resolvedConversationId = streamConversationId;
+              }
+              return;
+            case 'chunk':
+              final chunk = _chatbotDataSource.parseChatStreamChunk(event.data);
+              if (chunk.content.isEmpty) {
+                return;
+              }
+              buffer.write(chunk.content);
+              upsertAssistantMessage(buffer.toString());
+              return;
+            case 'done':
+              final done = _chatbotDataSource.parseChatStreamDone(event.data);
+              final streamConversationId = done.conversationId.trim();
+              if (streamConversationId.isNotEmpty) {
+                resolvedConversationId = streamConversationId;
+              }
+
+              final rawReply = done.fullReply.trim().isNotEmpty
+                  ? done.fullReply
+                  : buffer.toString();
+
+              if (rawReply.trim().isNotEmpty) {
+                upsertAssistantMessage(rawReply);
+              }
+
+              completeSuccess(rawReply);
+              return;
+            case 'error':
+              final streamError =
+                  _chatbotDataSource.parseChatStreamError(event.data);
+              final message = streamError.message.trim().isEmpty
+                  ? 'Chatbot streaming gap loi.'
+                  : streamError.message.trim();
+              completeFailure(Exception(message));
+              return;
+            default:
+              return;
+          }
+        } catch (error) {
+          completeFailure(error);
+        }
+      },
+      onError: (error) {
+        completeFailure(error);
+      },
+      onDone: () {
+        if (completer.isCompleted) {
+          return;
+        }
+
+        final fallbackReply = buffer.toString();
+        if (fallbackReply.trim().isNotEmpty) {
+          completeSuccess(fallbackReply);
+          return;
+        }
+
+        completeFailure(
+          Exception('Luong phan hoi ket thuc som. Vui long thu lai.'),
+        );
+      },
+      cancelOnError: false,
+    );
+
+    return completer.future.whenComplete(_stopChatStream);
+  }
+
+  void _replaceLatestAssistantMessage({
+    required String content,
+    required bool isError,
+  }) {
+    if (_messages.isEmpty || _messages.last.isFromUser) {
+      _messages = [
+        ..._messages,
+        _UiChatMessage(
+          content: content,
+          isFromUser: false,
+          isError: isError,
+          timestamp: DateTime.now(),
+        ),
+      ];
+      return;
+    }
+
+    final updatedMessages = [..._messages];
+    updatedMessages[updatedMessages.length - 1] = updatedMessages.last.copyWith(
+      content: content,
+      isError: isError,
+      timestamp: DateTime.now(),
+    );
+    _messages = updatedMessages;
+  }
+
+  void _stopChatStream() {
+    _chatSseSubscription?.cancel();
+    _chatSseSubscription = null;
+
+    _chatSseClient?.close();
+    _chatSseClient = null;
   }
 
   Future<void> _showConversationHistorySheet() async {
@@ -576,6 +819,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   }
 
   Future<void> _loadConversationHistory(String conversationId) async {
+    _stopChatStream();
+
     setState(() {
       _isLoadingHistory = true;
       _errorText = null;
@@ -642,10 +887,14 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   }
 
   void _clearConversation() {
+    _stopChatStream();
+
     setState(() {
       _conversationId = null;
       _messages = const [];
       _errorText = null;
+      _isSending = false;
+      _isAssistantStreaming = false;
     });
   }
 
@@ -1565,6 +1814,16 @@ class _SuggestionCard extends StatelessWidget {
   }
 }
 
+class _ChatSendResult {
+  final String reply;
+  final String? conversationId;
+
+  const _ChatSendResult({
+    required this.reply,
+    required this.conversationId,
+  });
+}
+
 class _UiChatMessage {
   final String content;
   final bool isFromUser;
@@ -1577,6 +1836,20 @@ class _UiChatMessage {
     required this.timestamp,
     this.isError = false,
   });
+
+  _UiChatMessage copyWith({
+    String? content,
+    bool? isFromUser,
+    DateTime? timestamp,
+    bool? isError,
+  }) {
+    return _UiChatMessage(
+      content: content ?? this.content,
+      isFromUser: isFromUser ?? this.isFromUser,
+      timestamp: timestamp ?? this.timestamp,
+      isError: isError ?? this.isError,
+    );
+  }
 }
 
 class _SavedConversation {

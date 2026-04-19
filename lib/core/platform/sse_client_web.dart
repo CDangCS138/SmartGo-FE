@@ -7,32 +7,78 @@ import 'sse_client_base.dart';
 
 class _WebSseClient implements SseClient {
   html.EventSource? _eventSource;
-  StreamController<String>? _controller;
+  void Function()? _closeController;
 
   @override
   Stream<String> connect(Uri uri) {
+    return connectToEvents(uri).map((event) => event.data);
+  }
+
+  @override
+  Stream<SseEvent> connectToEvents(
+    Uri uri, {
+    List<String> eventNames = const [],
+  }) {
     close();
 
-    final controller = StreamController<String>.broadcast(
+    final controller = StreamController<SseEvent>.broadcast(
       onCancel: close,
     );
 
-    _controller = controller;
+    _closeController = () {
+      if (!controller.isClosed) {
+        controller.close();
+      }
+    };
+
     final source = html.EventSource(uri.toString());
     _eventSource = source;
 
-    source.onMessage.listen((event) {
+    void emitEvent(String eventName, dynamic event) {
       if (controller.isClosed) {
         return;
       }
 
-      final payload = event.data?.toString();
+      String? payload;
+      if (event is html.MessageEvent) {
+        payload = event.data?.toString();
+      } else {
+        try {
+          payload = (event as dynamic).data?.toString();
+        } catch (_) {
+          payload = null;
+        }
+      }
+
       if (payload == null || payload.isEmpty) {
         return;
       }
 
-      controller.add(payload);
+      controller.add(
+        SseEvent(
+          event: eventName,
+          data: payload,
+        ),
+      );
+    }
+
+    source.onMessage.listen((event) {
+      emitEvent('message', event);
     });
+
+    final normalizedNames = eventNames
+        .map((name) => name.trim())
+        .where((name) => name.isNotEmpty && name != 'message')
+        .toSet();
+
+    for (final eventName in normalizedNames) {
+      source.addEventListener(
+        eventName,
+        (dynamic event) {
+          emitEvent(eventName, event);
+        },
+      );
+    }
 
     source.onError.listen((_) {
       if (!controller.isClosed) {
@@ -50,12 +96,9 @@ class _WebSseClient implements SseClient {
     _eventSource?.close();
     _eventSource = null;
 
-    final controller = _controller;
-    _controller = null;
-
-    if (controller != null && !controller.isClosed) {
-      controller.close();
-    }
+    final closeController = _closeController;
+    _closeController = null;
+    closeController?.call();
   }
 }
 

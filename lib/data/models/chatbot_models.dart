@@ -42,6 +42,77 @@ class ChatbotChatResponse {
   }
 }
 
+class ChatbotStreamMeta {
+  final String conversationId;
+  final int contextCount;
+  final bool cached;
+
+  const ChatbotStreamMeta({
+    required this.conversationId,
+    required this.contextCount,
+    required this.cached,
+  });
+
+  factory ChatbotStreamMeta.fromJson(Map<String, dynamic> json) {
+    final data = _unwrapData(json);
+    return ChatbotStreamMeta(
+      conversationId: (data['conversationId'] ?? '').toString(),
+      contextCount: (data['contextCount'] as num?)?.toInt() ?? 0,
+      cached: _toBool(data['cached']),
+    );
+  }
+}
+
+class ChatbotStreamChunk {
+  final String content;
+
+  const ChatbotStreamChunk({required this.content});
+
+  factory ChatbotStreamChunk.fromJson(Map<String, dynamic> json) {
+    final data = _unwrapData(json);
+    return ChatbotStreamChunk(
+      content: (data['content'] ?? '').toString(),
+    );
+  }
+}
+
+class ChatbotStreamDone {
+  final String conversationId;
+  final String fullReply;
+  final int contextCount;
+  final bool cached;
+
+  const ChatbotStreamDone({
+    required this.conversationId,
+    required this.fullReply,
+    required this.contextCount,
+    required this.cached,
+  });
+
+  factory ChatbotStreamDone.fromJson(Map<String, dynamic> json) {
+    final data = _unwrapData(json);
+    return ChatbotStreamDone(
+      conversationId: (data['conversationId'] ?? '').toString(),
+      fullReply: (data['fullReply'] ?? data['reply'] ?? '').toString(),
+      contextCount: (data['contextCount'] as num?)?.toInt() ?? 0,
+      cached: _toBool(data['cached']),
+    );
+  }
+}
+
+class ChatbotStreamError {
+  final String message;
+
+  const ChatbotStreamError({required this.message});
+
+  factory ChatbotStreamError.fromJson(Map<String, dynamic> json) {
+    final data = _unwrapData(json);
+    return ChatbotStreamError(
+      message: (data['message'] ?? data['error'] ?? '').toString(),
+    );
+  }
+}
+
 class ChatbotEmbedRequest {
   final String text;
   final ChatbotKnowledgeType type;
@@ -144,4 +215,17 @@ DateTime? _tryParseDate(dynamic raw) {
     return null;
   }
   return DateTime.tryParse(raw.toString());
+}
+
+bool _toBool(dynamic raw) {
+  if (raw is bool) {
+    return raw;
+  }
+
+  final text = raw?.toString().trim().toLowerCase();
+  if (text == null || text.isEmpty) {
+    return false;
+  }
+
+  return text == 'true' || text == '1' || text == 'yes';
 }

@@ -49,11 +49,21 @@ class RouteGeometryService {
   final Dio _dio;
   final Distance _distance = const Distance();
   final Map<String, List<_NearestRoadCandidate>> _nearestCandidatesCache = {};
+  final Map<String, Future<List<_NearestRoadCandidate>>> _nearestInFlight = {};
   final Map<String, List<LatLng>> _routeGeometryCache = {};
+  final Map<String, Future<List<LatLng>>> _routeGeometryInFlight = {};
   final Map<String, List<LatLng>> _matchGeometryCache = {};
+  final Map<String, Future<List<LatLng>>> _matchGeometryInFlight = {};
   final Map<String, List<LatLng>> _walkingGeometryCache = {};
+  final Map<String, Future<List<LatLng>>> _walkingGeometryInFlight = {};
   final Map<String, DateTime> _nearestFailureBackoff = {};
+  int _osrmRouteRequestCount = 0;
+  int _osrmMatchRequestCount = 0;
+  int _osrmNearestRequestCount = 0;
+  int _osrmWalkingRequestCount = 0;
+  DateTime? _lastOsrmStatsLogAt;
   DateTime? _nearestTemporarilyDisabledUntil;
+  DateTime? _matchTemporarilyDisabledUntil;
   DateTime? _nearestLastFailureAt;
   DateTime? _lastNearestFailureLogAt;
   DateTime? _lastRouteErrorLogAt;
@@ -69,7 +79,12 @@ class RouteGeometryService {
       'https://router.project-osrm.org/route/v1/walking/';
   static const String _osrmNearestBaseUrl =
       'https://router.project-osrm.org/nearest/v1/driving/';
-  static const int _maxMatchCoordinatesPerRequest = 100;
+  static const int _fastModeStationThreshold = 20;
+  static const int _fastModeMaxWaypointsPerRequest = 18;
+  static const int _maxMatchCoordinatesPerRequest = 40;
+  static const int _directMatchThreshold = 24;
+  static const int _matchChunkSize = 20;
+  static const int _matchChunkOverlap = 3;
   static const double _minSnapDistanceMeters = 8;
   static const double _alleyDistanceThresholdMeters = 35;
   static const double _maxSnapDistanceMeters = 280;
@@ -79,7 +94,49 @@ class RouteGeometryService {
   static const Duration _nearestFailureBurstWindow = Duration(seconds: 20);
   static const int _nearestFailureBurstThreshold = 3;
   static const Duration _nearestDisableDuration = Duration(minutes: 2);
+  static const Duration _matchDisableDurationOnTooBig = Duration(minutes: 2);
   static const Duration _failureLogThrottle = Duration(seconds: 8);
+  static const Duration _osrmStatsLogThrottle = Duration(seconds: 20);
+
+  Map<String, int> getOsrmRequestStatsSnapshot() {
+    return <String, int>{
+      'route': _osrmRouteRequestCount,
+      'match': _osrmMatchRequestCount,
+      'nearest': _osrmNearestRequestCount,
+      'walking': _osrmWalkingRequestCount,
+    };
+  }
+
+  void _recordOsrmRequest(String type) {
+    switch (type) {
+      case 'route':
+        _osrmRouteRequestCount += 1;
+        break;
+      case 'match':
+        _osrmMatchRequestCount += 1;
+        break;
+      case 'nearest':
+        _osrmNearestRequestCount += 1;
+        break;
+      case 'walking':
+        _osrmWalkingRequestCount += 1;
+        break;
+      default:
+        return;
+    }
+
+    final now = DateTime.now();
+    final lastLoggedAt = _lastOsrmStatsLogAt;
+    if (lastLoggedAt != null &&
+        now.difference(lastLoggedAt) < _osrmStatsLogThrottle) {
+      return;
+    }
+
+    _lastOsrmStatsLogAt = now;
+    AppLogger.info(
+      'OSRM stats route=$_osrmRouteRequestCount match=$_osrmMatchRequestCount nearest=$_osrmNearestRequestCount walking=$_osrmWalkingRequestCount',
+    );
+  }
 
   Future<TransitGeometryResult> buildTransitGeometryWithAccessPoints(
     List<LatLng> stopCoordinates, {
@@ -100,6 +157,36 @@ class RouteGeometryService {
     }
     if (resolvedNearestCandidates > 5) {
       resolvedNearestCandidates = 5;
+    }
+
+    if (stopCoordinates.length >= _fastModeStationThreshold) {
+      final fallbackAccessPoints = stopCoordinates
+          .map(
+            (stop) => TransitStationAccessPoint(
+              stopCoordinate: stop,
+              busAccessCoordinate: stop,
+              isInAlley: false,
+              walkDistanceToAccessPointKm: 0,
+              walkTimeToAccessPointMinutes: 0,
+            ),
+          )
+          .toList(growable: false);
+
+      final dedupedWaypoints = _dedupeConsecutiveWaypoints(stopCoordinates);
+      final fastModeBatchSize =
+          maxWaypointsPerRequest < _fastModeMaxWaypointsPerRequest
+              ? maxWaypointsPerRequest
+              : _fastModeMaxWaypointsPerRequest;
+      final geometry = await _getRouteGeometryBatchedWithoutSnapping(
+        dedupedWaypoints,
+        maxWaypointsPerRequest: fastModeBatchSize,
+      );
+
+      return TransitGeometryResult(
+        stationAccessPoints: fallbackAccessPoints,
+        drivingWaypoints: stopCoordinates,
+        transitGeometry: geometry,
+      );
     }
 
     final candidatesPerStation = List<List<_NearestRoadCandidate>>.filled(
@@ -150,10 +237,15 @@ class RouteGeometryService {
     final dedupedDrivingWaypoints =
         _dedupeConsecutiveWaypoints(drivingWaypoints);
 
-    final geometry = await _getRouteGeometryBatchedWithoutSnapping(
+    var geometry = await getDrivingGeometryPreferMatch(
       dedupedDrivingWaypoints,
-      maxWaypointsPerRequest: maxWaypointsPerRequest,
     );
+    if (_isSamePointSequence(geometry, dedupedDrivingWaypoints)) {
+      geometry = await _getRouteGeometryBatchedWithoutSnapping(
+        dedupedDrivingWaypoints,
+        maxWaypointsPerRequest: maxWaypointsPerRequest,
+      );
+    }
 
     return TransitGeometryResult(
       stationAccessPoints: accessPoints,
@@ -195,32 +287,48 @@ class RouteGeometryService {
       return cached;
     }
 
-    try {
-      final walkingResponse =
-          await _dio.getUri(_buildWalkingRouteUri(from, to));
-      final walkingPoints = _extractRoutePoints(walkingResponse.data);
-      if (walkingPoints != null && walkingPoints.length >= 2) {
-        _walkingGeometryCache[cacheKey] = walkingPoints;
-        return walkingPoints;
-      }
-    } catch (_) {
-      // Some public OSRM deployments do not expose walking profile.
+    final inFlight = _walkingGeometryInFlight[cacheKey];
+    if (inFlight != null) {
+      return inFlight;
     }
 
-    try {
-      final drivingResponse = await _dio.getUri(
-          _buildRouteUri(directWaypoints, useStrictDrivingHints: false));
-      final drivingPoints = _extractRoutePoints(drivingResponse.data);
-      if (drivingPoints != null && drivingPoints.length >= 2) {
-        _walkingGeometryCache[cacheKey] = drivingPoints;
-        return drivingPoints;
+    final requestFuture = () async {
+      try {
+        _recordOsrmRequest('walking');
+        final walkingResponse =
+            await _dio.getUri(_buildWalkingRouteUri(from, to));
+        final walkingPoints = _extractRoutePoints(walkingResponse.data);
+        if (walkingPoints != null && walkingPoints.length >= 2) {
+          _walkingGeometryCache[cacheKey] = walkingPoints;
+          return walkingPoints;
+        }
+      } catch (_) {
+        // Some public OSRM deployments do not expose walking profile.
       }
-    } catch (_) {
-      // Fallback to direct line when route provider is unavailable.
-    }
 
-    _walkingGeometryCache[cacheKey] = directWaypoints;
-    return directWaypoints;
+      try {
+        _recordOsrmRequest('route');
+        final drivingResponse = await _dio.getUri(
+            _buildRouteUri(directWaypoints, useStrictDrivingHints: false));
+        final drivingPoints = _extractRoutePoints(drivingResponse.data);
+        if (drivingPoints != null && drivingPoints.length >= 2) {
+          _walkingGeometryCache[cacheKey] = drivingPoints;
+          return drivingPoints;
+        }
+      } catch (_) {
+        // Fallback to direct line when route provider is unavailable.
+      }
+
+      _walkingGeometryCache[cacheKey] = directWaypoints;
+      return directWaypoints;
+    }();
+
+    _walkingGeometryInFlight[cacheKey] = requestFuture;
+    try {
+      return await requestFuture;
+    } finally {
+      _walkingGeometryInFlight.remove(cacheKey);
+    }
   }
 
   Uri _buildNearestUri(LatLng coordinate, {int number = 5}) {
@@ -248,6 +356,11 @@ class RouteGeometryService {
       return cached;
     }
 
+    final inFlight = _nearestInFlight[key];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
     final failedAt = _nearestFailureBackoff[key];
     if (failedAt != null) {
       if (now.difference(failedAt) < _nearestFailureBackoffDuration) {
@@ -256,56 +369,66 @@ class RouteGeometryService {
       _nearestFailureBackoff.remove(key);
     }
 
+    final requestFuture = () async {
+      try {
+        _recordOsrmRequest('nearest');
+        final response =
+            await _dio.getUri(_buildNearestUri(stop, number: number));
+        final data = response.data;
+        if (data is! Map<String, dynamic> || data['code'] != 'Ok') {
+          _recordNearestFailure(key, 'Invalid nearest response payload');
+          return const <_NearestRoadCandidate>[];
+        }
+
+        final waypoints = data['waypoints'];
+        if (waypoints is! List) {
+          _recordNearestFailure(key, 'Nearest response missing waypoints list');
+          return const <_NearestRoadCandidate>[];
+        }
+
+        final candidates = <_NearestRoadCandidate>[];
+        for (final waypoint in waypoints) {
+          if (waypoint is! Map<String, dynamic>) {
+            continue;
+          }
+
+          final location = waypoint['location'];
+          if (location is! List || location.length < 2) {
+            continue;
+          }
+
+          final lon = (location[0] as num?)?.toDouble();
+          final lat = (location[1] as num?)?.toDouble();
+          if (lon == null || lat == null) {
+            continue;
+          }
+
+          final distanceMeters =
+              ((waypoint['distance'] as num?) ?? double.infinity).toDouble();
+          candidates.add(
+            _NearestRoadCandidate(
+              point: LatLng(lat, lon),
+              distanceMeters: distanceMeters,
+            ),
+          );
+        }
+
+        _nearestCandidatesCache[key] = candidates;
+        _nearestFailureBackoff.remove(key);
+        _nearestFailureBurstCount = 0;
+        _nearestLastFailureAt = null;
+        return candidates;
+      } catch (e) {
+        _recordNearestFailure(key, e);
+        return const <_NearestRoadCandidate>[];
+      }
+    }();
+
+    _nearestInFlight[key] = requestFuture;
     try {
-      final response =
-          await _dio.getUri(_buildNearestUri(stop, number: number));
-      final data = response.data;
-      if (data is! Map<String, dynamic> || data['code'] != 'Ok') {
-        _recordNearestFailure(key, 'Invalid nearest response payload');
-        return const [];
-      }
-
-      final waypoints = data['waypoints'];
-      if (waypoints is! List) {
-        _recordNearestFailure(key, 'Nearest response missing waypoints list');
-        return const [];
-      }
-
-      final candidates = <_NearestRoadCandidate>[];
-      for (final waypoint in waypoints) {
-        if (waypoint is! Map<String, dynamic>) {
-          continue;
-        }
-
-        final location = waypoint['location'];
-        if (location is! List || location.length < 2) {
-          continue;
-        }
-
-        final lon = (location[0] as num?)?.toDouble();
-        final lat = (location[1] as num?)?.toDouble();
-        if (lon == null || lat == null) {
-          continue;
-        }
-
-        final distanceMeters =
-            ((waypoint['distance'] as num?) ?? double.infinity).toDouble();
-        candidates.add(
-          _NearestRoadCandidate(
-            point: LatLng(lat, lon),
-            distanceMeters: distanceMeters,
-          ),
-        );
-      }
-
-      _nearestCandidatesCache[key] = candidates;
-      _nearestFailureBackoff.remove(key);
-      _nearestFailureBurstCount = 0;
-      _nearestLastFailureAt = null;
-      return candidates;
-    } catch (e) {
-      _recordNearestFailure(key, e);
-      return const [];
+      return await requestFuture;
+    } finally {
+      _nearestInFlight.remove(key);
     }
   }
 
@@ -507,17 +630,21 @@ class RouteGeometryService {
       return drivingWaypoints;
     }
 
-    if (drivingWaypoints.length <= maxWaypointsPerRequest) {
+    final safeMaxWaypointsPerRequest =
+        maxWaypointsPerRequest < 2 ? 2 : maxWaypointsPerRequest;
+
+    if (drivingWaypoints.length <= safeMaxWaypointsPerRequest) {
       return _getRouteGeometryFromDrivingWaypoints(drivingWaypoints);
     }
 
     final allRoutePoints = <LatLng>[];
     for (int i = 0;
         i < drivingWaypoints.length - 1;
-        i += maxWaypointsPerRequest - 1) {
-      final endIndex = (i + maxWaypointsPerRequest < drivingWaypoints.length)
-          ? i + maxWaypointsPerRequest
-          : drivingWaypoints.length;
+        i += safeMaxWaypointsPerRequest - 1) {
+      final endIndex =
+          (i + safeMaxWaypointsPerRequest < drivingWaypoints.length)
+              ? i + safeMaxWaypointsPerRequest
+              : drivingWaypoints.length;
 
       final chunk = drivingWaypoints.sublist(i, endIndex);
       final segmentPoints = await _getRouteGeometryFromDrivingWaypoints(chunk);
@@ -541,44 +668,53 @@ class RouteGeometryService {
 
     final cacheKey = _buildRouteCacheKey(waypoints, profile: 'driving');
     final cached = _routeGeometryCache[cacheKey];
-    if (cached != null && cached.isNotEmpty) {
+    if (cached != null &&
+        cached.isNotEmpty &&
+        !_isSamePointSequence(cached, waypoints)) {
       return cached;
     }
 
+    final inFlight = _routeGeometryInFlight[cacheKey];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final requestFuture = () async {
+      try {
+        AppLogger.info('Fetching route geometry from OSRM...');
+
+        _recordOsrmRequest('route');
+        final response = await _dio
+            .getUri(_buildRouteUri(waypoints, useStrictDrivingHints: false));
+        final routePoints = _extractRoutePoints(response.data);
+        if (routePoints != null &&
+            !_isSamePointSequence(routePoints, waypoints)) {
+          _routeGeometryCache[cacheKey] = routePoints;
+          AppLogger.info(
+              'Route geometry fetched: ${routePoints.length} points');
+          return routePoints;
+        }
+
+        if (routePoints != null) {
+          AppLogger.warning(
+              'Route geometry identical to raw waypoints; skip cache to retry later');
+          return routePoints;
+        }
+
+        AppLogger.warning('Failed to get route geometry, using waypoints');
+        return waypoints;
+      } catch (e) {
+        _logRouteError(e);
+        // Fallback to direct waypoints if routing fails
+        return waypoints;
+      }
+    }();
+
+    _routeGeometryInFlight[cacheKey] = requestFuture;
     try {
-      AppLogger.info('Fetching route geometry from OSRM...');
-
-      final strictResponse = await _dio
-          .getUri(_buildRouteUri(waypoints, useStrictDrivingHints: true));
-      final strictRoutePoints = _extractRoutePoints(strictResponse.data);
-      if (strictRoutePoints != null) {
-        _routeGeometryCache[cacheKey] = strictRoutePoints;
-        AppLogger.info(
-            'Route geometry fetched with curb/continue_straight: ${strictRoutePoints.length} points');
-        return strictRoutePoints;
-      }
-
-      AppLogger.warning(
-          'Strict OSRM route not found, retrying without curb/continue_straight');
-
-      final fallbackResponse = await _dio
-          .getUri(_buildRouteUri(waypoints, useStrictDrivingHints: false));
-      final fallbackRoutePoints = _extractRoutePoints(fallbackResponse.data);
-      if (fallbackRoutePoints != null) {
-        _routeGeometryCache[cacheKey] = fallbackRoutePoints;
-        AppLogger.info(
-            'Route geometry fetched (fallback): ${fallbackRoutePoints.length} points');
-        return fallbackRoutePoints;
-      }
-
-      AppLogger.warning('Failed to get route geometry, using waypoints');
-      _routeGeometryCache[cacheKey] = waypoints;
-      return waypoints;
-    } catch (e) {
-      _logRouteError(e);
-      // Fallback to direct waypoints if routing fails
-      _routeGeometryCache[cacheKey] = waypoints;
-      return waypoints;
+      return await requestFuture;
+    } finally {
+      _routeGeometryInFlight.remove(cacheKey);
     }
   }
 
@@ -595,30 +731,256 @@ class RouteGeometryService {
       return deduped;
     }
 
+    final now = DateTime.now();
+    if (_isMatchTemporarilyDisabled(now)) {
+      return deduped;
+    }
+
     final cacheKey = _buildRouteCacheKey(deduped, profile: 'driving-match');
     final cached = _matchGeometryCache[cacheKey];
-    if (cached != null && cached.isNotEmpty) {
+    if (cached != null &&
+        cached.isNotEmpty &&
+        !_isSamePointSequence(cached, deduped)) {
       return cached;
     }
 
-    final interpolated = _interpolateWaypointsForMatching(deduped);
-    final requestPoints = interpolated.length <= maxCoordinatesPerRequest
-        ? interpolated
-        : _compressWaypoints(interpolated, maxCoordinatesPerRequest);
-
-    try {
-      final response = await _dio.getUri(_buildMatchUri(requestPoints));
-      final matchedPoints = _extractMatchPoints(response.data);
-      if (matchedPoints != null && matchedPoints.length >= 2) {
-        _matchGeometryCache[cacheKey] = matchedPoints;
-        return matchedPoints;
-      }
-    } catch (e) {
-      _logRouteError('OSRM match failed: $e');
+    final inFlight = _matchGeometryInFlight[cacheKey];
+    if (inFlight != null) {
+      return inFlight;
     }
 
-    _matchGeometryCache[cacheKey] = deduped;
-    return deduped;
+    final requestFuture = () async {
+      var effectiveMaxCoordinates = maxCoordinatesPerRequest;
+      if (effectiveMaxCoordinates > _maxMatchCoordinatesPerRequest) {
+        effectiveMaxCoordinates = _maxMatchCoordinatesPerRequest;
+      }
+      if (effectiveMaxCoordinates > 32) {
+        effectiveMaxCoordinates = 32;
+      }
+      if (effectiveMaxCoordinates < 12) {
+        effectiveMaxCoordinates = 12;
+      }
+
+      final interpolationStepMeters =
+          deduped.length >= 18 ? 95.0 : (deduped.length >= 10 ? 78.0 : 62.0);
+      final interpolated = _interpolateWaypointsForMatching(
+        deduped,
+        stepMeters: interpolationStepMeters,
+      );
+      final baseRequestPoints = interpolated.length <= effectiveMaxCoordinates
+          ? interpolated
+          : _compressWaypoints(interpolated, effectiveMaxCoordinates);
+
+      List<LatLng>? matchedPoints;
+
+      if (baseRequestPoints.length > _directMatchThreshold) {
+        matchedPoints = await _tryMatchInChunks(
+          baseRequestPoints,
+          chunkSize: _matchChunkSize,
+          overlap: _matchChunkOverlap,
+          radiusScale: 0.44,
+        );
+      }
+
+      if ((matchedPoints == null || matchedPoints.length < 2) &&
+          !_isMatchTemporarilyDisabled(DateTime.now())) {
+        var requestPoints = baseRequestPoints.length > _directMatchThreshold
+            ? _compressWaypoints(baseRequestPoints, 24)
+            : baseRequestPoints;
+        var radiusScale = 0.56;
+
+        for (var attempt = 0; attempt < 2; attempt++) {
+          if (_isMatchTemporarilyDisabled(DateTime.now())) {
+            break;
+          }
+
+          matchedPoints = await _tryMatchCall(
+            requestPoints,
+            radiusScale: radiusScale,
+            logOnError: attempt == 1,
+          );
+          if (matchedPoints != null && matchedPoints.length >= 2) {
+            break;
+          }
+
+          if (attempt == 0 && requestPoints.length > 16) {
+            requestPoints = _compressWaypoints(requestPoints, 16);
+            radiusScale *= 0.75;
+          }
+        }
+      }
+
+      if (matchedPoints != null && matchedPoints.length >= 2) {
+        final cleaned = _collapseShortDetourLoops(matchedPoints);
+        final result = cleaned.length >= 2 ? cleaned : matchedPoints;
+        if (!_isSamePointSequence(result, deduped)) {
+          _matchGeometryCache[cacheKey] = result;
+        }
+        return result;
+      }
+
+      return deduped;
+    }();
+
+    _matchGeometryInFlight[cacheKey] = requestFuture;
+    try {
+      return await requestFuture;
+    } finally {
+      _matchGeometryInFlight.remove(cacheKey);
+    }
+  }
+
+  Future<List<LatLng>?> _tryMatchCall(
+    List<LatLng> points, {
+    required double radiusScale,
+    bool logOnError = false,
+  }) async {
+    if (points.length < 2) {
+      return null;
+    }
+
+    if (_isMatchTemporarilyDisabled(DateTime.now())) {
+      return null;
+    }
+
+    if (_shouldSkipMatchRequest(points, radiusScale: radiusScale)) {
+      return null;
+    }
+
+    try {
+      _recordOsrmRequest('match');
+      final response = await _dio.getUri(
+        _buildMatchUri(
+          points,
+          radiusScale: radiusScale,
+        ),
+      );
+      return _extractMatchPoints(response.data);
+    } catch (e) {
+      final isTooBig = _isTooBigMatchError(e);
+      if (isTooBig) {
+        _matchTemporarilyDisabledUntil =
+            DateTime.now().add(_matchDisableDurationOnTooBig);
+      }
+
+      if (logOnError || !isTooBig) {
+        _logRouteError('OSRM match failed: $e');
+      }
+      return null;
+    }
+  }
+
+  bool _isMatchTemporarilyDisabled(DateTime now) {
+    final disabledUntil = _matchTemporarilyDisabledUntil;
+    if (disabledUntil == null) {
+      return false;
+    }
+    return now.isBefore(disabledUntil);
+  }
+
+  bool _shouldSkipMatchRequest(
+    List<LatLng> points, {
+    required double radiusScale,
+  }) {
+    if (points.length > 24) {
+      return true;
+    }
+
+    final radii = _buildMatchRadii(
+      points,
+      radiusScale: radiusScale,
+    );
+    var radiusBudget = 0;
+    for (final radius in radii) {
+      radiusBudget += int.tryParse(radius) ?? 0;
+    }
+
+    return radiusBudget > 360;
+  }
+
+  Future<List<LatLng>?> _tryMatchInChunks(
+    List<LatLng> points, {
+    required int chunkSize,
+    required int overlap,
+    required double radiusScale,
+  }) async {
+    if (points.length < 2) {
+      return null;
+    }
+
+    if (_isMatchTemporarilyDisabled(DateTime.now())) {
+      return null;
+    }
+
+    final merged = <LatLng>[];
+    var start = 0;
+
+    while (start < points.length - 1) {
+      final end = (start + chunkSize < points.length)
+          ? start + chunkSize
+          : points.length;
+      final chunk = points.sublist(start, end);
+
+      var chunkMatch = await _tryMatchCall(
+        chunk,
+        radiusScale: radiusScale,
+      );
+
+      if ((chunkMatch == null || chunkMatch.length < 2) && chunk.length > 14) {
+        final compressedChunk = _compressWaypoints(chunk, 16);
+        chunkMatch = await _tryMatchCall(
+          compressedChunk,
+          radiusScale: radiusScale * 0.72,
+          logOnError: true,
+        );
+      }
+
+      if (chunkMatch == null || chunkMatch.length < 2) {
+        return null;
+      }
+
+      if (merged.isEmpty) {
+        merged.addAll(chunkMatch);
+      } else {
+        final isConnected = _distanceMeters(merged.last, chunkMatch.first) <= 8;
+        merged.addAll(isConnected ? chunkMatch.skip(1) : chunkMatch);
+      }
+
+      if (end >= points.length) {
+        break;
+      }
+
+      start = end - overlap;
+      if (start < 0) {
+        start = 0;
+      }
+    }
+
+    return merged.length >= 2 ? merged : null;
+  }
+
+  bool _isTooBigMatchError(Object error) {
+    final normalized = error.toString().toLowerCase();
+    if (normalized.contains('toobig') ||
+        normalized.contains('radius search size is too large') ||
+        normalized.contains('too many trace coordinates')) {
+      return true;
+    }
+
+    if (error is DioException) {
+      final data = error.response?.data;
+      if (data is Map<String, dynamic>) {
+        final code = data['code']?.toString().toLowerCase() ?? '';
+        final message = data['message']?.toString().toLowerCase() ?? '';
+        if (code == 'toobig' ||
+            message.contains('radius search size is too large') ||
+            message.contains('too many trace coordinates')) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   List<LatLng> _interpolateWaypointsForMatching(
@@ -686,12 +1048,18 @@ class RouteGeometryService {
     return compressed;
   }
 
-  Uri _buildMatchUri(List<LatLng> coordinates) {
+  Uri _buildMatchUri(
+    List<LatLng> coordinates, {
+    double radiusScale = 1.0,
+  }) {
     final coordinatePath = coordinates
         .map((point) => '${point.longitude},${point.latitude}')
         .join(';');
 
-    final radiuses = List.filled(coordinates.length, '35').join(';');
+    final radiuses = _buildMatchRadii(
+      coordinates,
+      radiusScale: radiusScale,
+    ).join(';');
 
     return Uri.parse('$_osrmMatchBaseUrl$coordinatePath').replace(
       queryParameters: {
@@ -702,6 +1070,111 @@ class RouteGeometryService {
         'radiuses': radiuses,
       },
     );
+  }
+
+  List<String> _buildMatchRadii(
+    List<LatLng> points, {
+    required double radiusScale,
+  }) {
+    if (points.length < 3) {
+      return List.filled(points.length, _formatRadiusMeters(18 * radiusScale));
+    }
+
+    final radii = <String>[];
+    for (var index = 0; index < points.length; index++) {
+      if (index == 0 || index == points.length - 1) {
+        radii.add(_formatRadiusMeters(20 * radiusScale));
+        continue;
+      }
+
+      final previous = points[index - 1];
+      final current = points[index];
+      final next = points[index + 1];
+
+      final prevCurrent = _distanceMeters(previous, current);
+      final currentNext = _distanceMeters(current, next);
+      final prevNext = _distanceMeters(previous, next);
+
+      final ratio = prevNext <= 1
+          ? double.infinity
+          : (prevCurrent + currentNext) / prevNext;
+      final isLikelyAlleyDetour = prevCurrent <= 220 &&
+          currentNext <= 220 &&
+          prevNext <= 140 &&
+          ratio >= 1.9;
+
+      final radiusMeters = isLikelyAlleyDetour ? 26 : 16;
+      radii.add(_formatRadiusMeters(radiusMeters * radiusScale));
+    }
+
+    radii[0] = _formatRadiusMeters(20 * radiusScale);
+    radii[radii.length - 1] = _formatRadiusMeters(20 * radiusScale);
+
+    return radii;
+  }
+
+  String _formatRadiusMeters(double rawMeters) {
+    final clamped = rawMeters.clamp(8.0, 45.0);
+    return clamped.round().toString();
+  }
+
+  List<LatLng> _collapseShortDetourLoops(
+    List<LatLng> points, {
+    double closureMeters = 24,
+    double minLoopPathMeters = 140,
+    int maxWindow = 160,
+  }) {
+    if (points.length < 4) {
+      return points;
+    }
+
+    final simplified = List<LatLng>.from(points);
+    var start = 0;
+    while (start < simplified.length - 3) {
+      var traversed = 0.0;
+      var collapsed = false;
+
+      final maxEnd = (start + maxWindow < simplified.length)
+          ? start + maxWindow
+          : simplified.length - 1;
+      for (var end = start + 1; end <= maxEnd; end++) {
+        traversed += _distanceMeters(simplified[end - 1], simplified[end]);
+        if (traversed < minLoopPathMeters || end - start < 3) {
+          continue;
+        }
+
+        final closure = _distanceMeters(simplified[start], simplified[end]);
+        if (closure <= closureMeters) {
+          simplified.removeRange(start + 1, end);
+          start = start > 0 ? start - 1 : 0;
+          collapsed = true;
+          break;
+        }
+      }
+
+      if (!collapsed) {
+        start += 1;
+      }
+    }
+
+    return simplified;
+  }
+
+  bool _isSamePointSequence(List<LatLng> a, List<LatLng> b) {
+    if (a.length != b.length) {
+      return false;
+    }
+
+    for (var index = 0; index < a.length; index++) {
+      final pointA = a[index];
+      final pointB = b[index];
+      if ((pointA.latitude - pointB.latitude).abs() > 0.000001 ||
+          (pointA.longitude - pointB.longitude).abs() > 0.000001) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   List<LatLng>? _extractMatchPoints(dynamic responseData) {

@@ -277,17 +277,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final matchedGeometry =
         await _routeGeometryService.getDrivingGeometryPreferMatch(
       waypoints,
-      maxCoordinatesPerRequest: 100,
+      maxCoordinatesPerRequest: 36,
     );
     if (!_isSamePointList(matchedGeometry, waypoints)) {
       return matchedGeometry;
     }
 
     // One fallback route request only.
+    final fallbackWaypoints = _buildMainRoadAnchors(waypoints);
     final singleCallGeometry =
         await _routeGeometryService.getDrivingGeometryWithoutSnapping(
-      waypoints,
-      maxWaypointsPerRequest: waypoints.length,
+      fallbackWaypoints,
+      maxWaypointsPerRequest: fallbackWaypoints.length,
     );
     return singleCallGeometry;
   }
@@ -319,8 +320,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final isMinorAlleyDetour =
           prevCurrent <= 140 && currentNext <= 140 && prevNext <= 240;
       final isNearMainCorridor = deviation <= 45;
+      final detourRatio = prevNext <= 1
+          ? double.infinity
+          : (prevCurrent + currentNext) / prevNext;
+      final isLoopIntoAlley = prevCurrent <= 220 &&
+          currentNext <= 220 &&
+          prevNext <= 120 &&
+          detourRatio >= 1.95;
 
-      if (isMinorAlleyDetour && isNearMainCorridor) {
+      if ((isMinorAlleyDetour && isNearMainCorridor) || isLoopIntoAlley) {
         continue;
       }
 
@@ -329,6 +337,38 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     filtered.add(raw.last);
 
     return _dedupeWaypoints(filtered, minDistanceMeters: 8);
+  }
+
+  List<LatLng> _buildMainRoadAnchors(List<LatLng> waypoints) {
+    if (waypoints.length <= 2) {
+      return waypoints;
+    }
+
+    final anchors = <LatLng>[waypoints.first];
+    for (var index = 1; index < waypoints.length - 1; index++) {
+      final previous = anchors.last;
+      final current = waypoints[index];
+      final next = waypoints[index + 1];
+
+      final prevCurrent = _distance.as(LengthUnit.Meter, previous, current);
+      final currentNext = _distance.as(LengthUnit.Meter, current, next);
+      final prevNext = _distance.as(LengthUnit.Meter, previous, next);
+
+      final ratio = prevNext <= 1
+          ? double.infinity
+          : (prevCurrent + currentNext) / prevNext;
+      final isLikelyBranch = prevCurrent <= 260 &&
+          currentNext <= 260 &&
+          prevNext <= 160 &&
+          ratio >= 1.85;
+
+      if (!isLikelyBranch) {
+        anchors.add(current);
+      }
+    }
+    anchors.add(waypoints.last);
+
+    return _dedupeWaypoints(anchors, minDistanceMeters: 20);
   }
 
   List<LatLng> _dedupeWaypoints(
