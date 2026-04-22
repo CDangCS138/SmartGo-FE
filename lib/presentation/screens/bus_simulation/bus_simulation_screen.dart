@@ -1675,7 +1675,7 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
       children: [
         if (stationCandidates.isNotEmpty)
           DropdownButtonFormField<String>(
-            initialValue:
+            value:
                 stationCandidates.any((s) => s.id == _selectedStationId)
                     ? _selectedStationId
                     : null,

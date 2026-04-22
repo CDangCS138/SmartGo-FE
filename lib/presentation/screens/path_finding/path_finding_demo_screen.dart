@@ -2643,7 +2643,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       child: Column(
         children: [
           DropdownButtonFormField<RoutingCriteria>(
-            initialValue: _selectedCriteria,
+            value: _selectedCriteria,
             decoration: const InputDecoration(
               labelText: 'Tiêu chí tối ưu',
               border: OutlineInputBorder(),

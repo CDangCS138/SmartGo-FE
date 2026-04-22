@@ -23,7 +23,7 @@ git pull --ff-only origin "${BRANCH}"
 
 echo "==> Build and restart containers"
 docker compose down
-docker compose build --no-cache
+docker compose build
 docker compose up -d
 
 echo "==> Cleanup dangling images"
