@@ -695,33 +695,101 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
       return;
     }
 
-    await showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      builder: (context) {
-        return ListView.separated(
-          itemCount: routes.length,
-          separatorBuilder: (context, index) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final route = routes[index];
-            final selected = route.id == _selectedRouteId;
-            return ListTile(
-              leading: Icon(
-                Icons.directions_bus_filled_rounded,
-                color: selected ? Theme.of(context).colorScheme.primary : null,
-              ),
-              title: Text('Tuyến ${route.routeCode}'),
-              subtitle: Text('${route.startPoint} -> ${route.endPoint}'),
-              trailing: selected ? const Icon(Icons.check_rounded) : null,
-              onTap: () {
-                Navigator.of(context).pop();
-                _onRouteSelected(route);
-              },
-            );
-          },
-        );
-      },
-    );
+    final searchController = TextEditingController();
+
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        useSafeArea: true,
+        isScrollControlled: true,
+        builder: (context) {
+          return StatefulBuilder(
+            builder: (context, setModalState) {
+              final query = searchController.text.trim().toLowerCase();
+              final filteredRoutes = query.isEmpty
+                  ? routes
+                  : routes.where((route) {
+                      return route.routeCode.toLowerCase().contains(query) ||
+                          route.routeName.toLowerCase().contains(query) ||
+                          route.startPoint.toLowerCase().contains(query) ||
+                          route.endPoint.toLowerCase().contains(query);
+                    }).toList();
+
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSizes.md,
+                      AppSizes.sm,
+                      AppSizes.md,
+                      AppSizes.sm,
+                    ),
+                    child: TextField(
+                      controller: searchController,
+                      onChanged: (_) => setModalState(() {}),
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        hintText: 'Tìm tuyến theo mã/tên/điểm đầu-cuối',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: searchController.text.trim().isEmpty
+                            ? null
+                            : IconButton(
+                                icon: const Icon(Icons.close_rounded),
+                                tooltip: 'Xóa từ khóa',
+                                onPressed: () {
+                                  searchController.clear();
+                                  setModalState(() {});
+                                },
+                              ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: filteredRoutes.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'Không tìm thấy tuyến phù hợp',
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: filteredRoutes.length,
+                            separatorBuilder: (context, index) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final route = filteredRoutes[index];
+                              final selected = route.id == _selectedRouteId;
+                              return ListTile(
+                                leading: Icon(
+                                  Icons.directions_bus_filled_rounded,
+                                  color: selected
+                                      ? Theme.of(context).colorScheme.primary
+                                      : null,
+                                ),
+                                title: Text('Tuyến ${route.routeCode}'),
+                                subtitle: Text(
+                                  '${route.startPoint} -> ${route.endPoint}',
+                                ),
+                                trailing: selected
+                                    ? const Icon(Icons.check_rounded)
+                                    : null,
+                                onTap: () {
+                                  Navigator.of(context).pop();
+                                  _onRouteSelected(route);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      searchController.dispose();
+    }
   }
 
   Future<void> _openTripDetail(

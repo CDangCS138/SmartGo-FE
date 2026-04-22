@@ -45,8 +45,14 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
       final paymentDataSource = getIt<PaymentRemoteDataSource>();
 
       final result = _isMomo
-          ? await paymentDataSource.getMomoReturnResult(accessToken)
-          : await paymentDataSource.getVnpayReturnResult(accessToken);
+          ? await paymentDataSource.getMomoReturnResult(
+              accessToken,
+              callbackParams: widget.callbackParams,
+            )
+          : await paymentDataSource.getVnpayReturnResult(
+              accessToken,
+              callbackParams: widget.callbackParams,
+            );
 
       if (!mounted) {
         return;

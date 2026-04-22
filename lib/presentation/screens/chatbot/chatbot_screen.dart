@@ -936,9 +936,20 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         return;
       }
 
+      final restoredConversations = items.take(_maxSavedConversations).toList();
+      final latestConversationId = restoredConversations.isEmpty
+          ? ''
+          : restoredConversations.first.id.trim();
+
       setState(() {
-        _savedConversations = items.take(_maxSavedConversations).toList();
+        _savedConversations = restoredConversations;
       });
+
+      if (latestConversationId.isNotEmpty &&
+          _conversationId == null &&
+          _messages.isEmpty) {
+        await _loadConversationHistory(latestConversationId);
+      }
     } catch (_) {
       await getIt<StorageService>().removeKey(
         AppConstants.chatbotConversationHistoryKey,

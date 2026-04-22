@@ -35,10 +35,55 @@ abstract class AuthRemoteDataSource {
 class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   final http.Client client;
   final String baseUrl;
+  static const _googleOAuthDebugPrefix = '[GOOGLE_OAUTH_DEBUG]';
 
   AuthRemoteDataSourceImpl({
     required this.client,
   }) : baseUrl = AppEnv.baseUrl;
+
+  String _safeAuthCodePrefix(String authCode) {
+    if (authCode.length <= 12) {
+      return authCode;
+    }
+    return '${authCode.substring(0, 12)}...';
+  }
+
+  String _safeResponseBody(String body) {
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) {
+      return '(empty)';
+    }
+    if (trimmed.length <= 1200) {
+      return trimmed;
+    }
+    return '${trimmed.substring(0, 1200)}...';
+  }
+
+  String _buildGoogleOAuthDebugMessage({
+    required String phase,
+    required String authCode,
+    required String state,
+    int? statusCode,
+    String? responseBody,
+    String? serverMessage,
+    String? error,
+  }) {
+    final lines = <String>[
+      _googleOAuthDebugPrefix,
+      'phase: $phase',
+      'endpoint: $baseUrl/api/v1/auth/google/exchange',
+      if (statusCode != null) 'statusCode: $statusCode',
+      'state_sent: $state',
+      'authCode_prefix: ${_safeAuthCodePrefix(authCode)}',
+      if (serverMessage != null && serverMessage.isNotEmpty)
+        'server_message: $serverMessage',
+      if (responseBody != null && responseBody.isNotEmpty)
+        'response_body: ${_safeResponseBody(responseBody)}',
+      if (error != null && error.isNotEmpty) 'error: $error',
+    ];
+
+    return lines.join('\n');
+  }
 
   @override
   Future<LoginResponse> login({
@@ -152,18 +197,52 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
         final jsonResponse = json.decode(response.body);
         return LoginResponse.fromJson(jsonResponse);
       } else if (response.statusCode == 400 || response.statusCode == 401) {
-        final jsonResponse = json.decode(response.body);
-        final message =
-            jsonResponse['message'] ?? 'Mã xác thực Google không hợp lệ';
-        throw ValidationException(message);
+        String serverMessage = 'Mã xác thực Google không hợp lệ';
+        try {
+          final jsonResponse = json.decode(response.body);
+          if (jsonResponse is Map<String, dynamic>) {
+            final rawMessage = jsonResponse['message'];
+            if (rawMessage is String && rawMessage.trim().isNotEmpty) {
+              serverMessage = rawMessage;
+            } else if (rawMessage != null) {
+              serverMessage = rawMessage.toString();
+            }
+          }
+        } catch (_) {
+          // Keep fallback message when response body is not JSON.
+        }
+
+        throw ValidationException(
+          _buildGoogleOAuthDebugMessage(
+            phase: 'exchange_failed',
+            authCode: authCode,
+            state: state,
+            statusCode: response.statusCode,
+            responseBody: response.body,
+            serverMessage: serverMessage,
+          ),
+        );
       } else {
         throw ServerException(
-          'Đổi mã xác thực Google thất bại: ${response.statusCode}',
+          _buildGoogleOAuthDebugMessage(
+            phase: 'unexpected_status',
+            authCode: authCode,
+            state: state,
+            statusCode: response.statusCode,
+            responseBody: response.body,
+          ),
         );
       }
     } catch (e) {
       if (e is ServerException || e is ValidationException) rethrow;
-      throw ServerException('Lỗi kết nối: $e');
+      throw ServerException(
+        _buildGoogleOAuthDebugMessage(
+          phase: 'request_exception',
+          authCode: authCode,
+          state: state,
+          error: e.toString(),
+        ),
+      );
     }
   }
 

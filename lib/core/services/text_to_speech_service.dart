@@ -1,12 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
+import 'web_text_to_speech.dart';
+
 class TextToSpeechService {
   TextToSpeechService._();
 
   static final TextToSpeechService instance = TextToSpeechService._();
 
   final FlutterTts _tts = FlutterTts();
+  final WebTextToSpeech _webTextToSpeech = createWebTextToSpeech();
   bool _isInitialized = false;
   bool _hasConfiguredVietnameseLanguage = false;
   bool _hasConfiguredVietnameseVoice = false;
@@ -219,6 +222,13 @@ class TextToSpeechService {
       return false;
     }
 
+    if (kIsWeb && _webTextToSpeech.isSupported) {
+      final spokeOnWeb = await _webTextToSpeech.speak(text);
+      if (spokeOnWeb) {
+        return true;
+      }
+    }
+
     try {
       await _initialize();
 
@@ -236,6 +246,10 @@ class TextToSpeechService {
   }
 
   Future<void> stop() async {
+    if (kIsWeb && _webTextToSpeech.isSupported) {
+      await _webTextToSpeech.stop();
+    }
+
     try {
       await _tts.stop();
     } catch (_) {

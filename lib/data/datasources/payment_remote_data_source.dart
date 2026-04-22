@@ -17,9 +17,15 @@ abstract class PaymentRemoteDataSource {
     String? accessToken,
   );
 
-  Future<VnpayReturnResponse> getVnpayReturnResult(String? accessToken);
+  Future<VnpayReturnResponse> getVnpayReturnResult(
+    String? accessToken, {
+    Map<String, String> callbackParams = const {},
+  });
 
-  Future<VnpayReturnResponse> getMomoReturnResult(String? accessToken);
+  Future<VnpayReturnResponse> getMomoReturnResult(
+    String? accessToken, {
+    Map<String, String> callbackParams = const {},
+  });
 
   Future<VnpayIpnResponse> handleVnpayIpn(String? accessToken);
 
@@ -114,10 +120,17 @@ class PaymentRemoteDataSourceImpl implements PaymentRemoteDataSource {
   }
 
   @override
-  Future<VnpayReturnResponse> getVnpayReturnResult(String? accessToken) async {
+  Future<VnpayReturnResponse> getVnpayReturnResult(
+    String? accessToken, {
+    Map<String, String> callbackParams = const {},
+  }) async {
     try {
+      final uri = Uri.parse('$baseUrl/api/v1/payments/vnpay/return').replace(
+        queryParameters: callbackParams.isEmpty ? null : callbackParams,
+      );
+
       final response = await client.get(
-        Uri.parse('$baseUrl/api/v1/payments/vnpay/return'),
+        uri,
         headers: _buildHeaders(accessToken),
       );
 
@@ -139,10 +152,17 @@ class PaymentRemoteDataSourceImpl implements PaymentRemoteDataSource {
   }
 
   @override
-  Future<VnpayReturnResponse> getMomoReturnResult(String? accessToken) async {
+  Future<VnpayReturnResponse> getMomoReturnResult(
+    String? accessToken, {
+    Map<String, String> callbackParams = const {},
+  }) async {
     try {
+      final uri = Uri.parse('$baseUrl/api/v1/payments/momo/return').replace(
+        queryParameters: callbackParams.isEmpty ? null : callbackParams,
+      );
+
       final response = await client.get(
-        Uri.parse('$baseUrl/api/v1/payments/momo/return'),
+        uri,
         headers: _buildHeaders(accessToken),
       );
 

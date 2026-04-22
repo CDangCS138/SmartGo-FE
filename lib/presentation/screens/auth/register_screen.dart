@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -21,7 +22,14 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  static const _googleOAuthStateStorageKey = 'google_oauth_state_register';
+  static const _googleOAuthStateStorageKey = 'google_oauth_state';
+  static const _googleOAuthLegacyLoginStateStorageKey =
+      'google_oauth_state_login';
+  static const _googleOAuthLegacyRegisterStateStorageKey =
+      'google_oauth_state_register';
+  static const _googleOAuthLastCallbackStorageKey =
+      'google_oauth_last_callback_signature';
+  static const _googleOAuthDebugPrefix = '[GOOGLE_OAUTH_DEBUG]';
 
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
@@ -122,6 +130,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_googleOAuthStateStorageKey, state);
+        await prefs.setString(_googleOAuthLegacyRegisterStateStorageKey, state);
+        await prefs.remove(_googleOAuthLastCallbackStorageKey);
       } catch (_) {
         // Continue OAuth even if local storage is unavailable.
       }
@@ -131,11 +141,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (kIsWeb) {
-        // In debug, stay in the same tab to inspect OAuth network requests.
-        // In production, open a new tab to avoid replacing the app tab.
-        const webTarget = kDebugMode ? '_self' : '_blank';
+        // Keep OAuth in the same tab so callback can be handled immediately
+        // by the current app instance on web.
+        const webTarget = '_self';
         debugPrint('Google OAuth URL: $authUri (target: $webTarget)');
-        await openExternalUrl(authUri, webTarget: webTarget);
+        final opened = await openExternalUrl(authUri, webTarget: webTarget);
+        if (!opened && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Không thể mở trang đăng nhập Google.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
         return;
       }
 
@@ -215,37 +233,154 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    final callbackSignature = '$authCode::$callbackState';
+
     _isHandlingOAuthCallback = true;
 
-    String? expectedState;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      expectedState = prefs.getString(_googleOAuthStateStorageKey);
-      await prefs.remove(_googleOAuthStateStorageKey);
-    } catch (_) {
-      expectedState = null;
-    }
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final lastHandled = prefs.getString(_googleOAuthLastCallbackStorageKey);
+        if (lastHandled == callbackSignature) {
+          _clearOAuthCallbackFromBrowserUrl();
+          return;
+        }
 
+        await prefs.setString(
+          _googleOAuthLastCallbackStorageKey,
+          callbackSignature,
+        );
+      } catch (_) {
+        // Continue processing even if dedupe storage is unavailable.
+      }
+
+      _clearOAuthCallbackFromBrowserUrl();
+
+      final expectedStates = <String>{};
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final keysToCheck = <String>[
+          _googleOAuthStateStorageKey,
+          _googleOAuthLegacyLoginStateStorageKey,
+          _googleOAuthLegacyRegisterStateStorageKey,
+        ];
+
+        for (final key in keysToCheck) {
+          final value = prefs.getString(key);
+          if (value != null && value.isNotEmpty) {
+            expectedStates.add(value);
+          }
+        }
+
+        await prefs.remove(_googleOAuthStateStorageKey);
+        await prefs.remove(_googleOAuthLegacyLoginStateStorageKey);
+        await prefs.remove(_googleOAuthLegacyRegisterStateStorageKey);
+      } catch (_) {
+        expectedStates.clear();
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      if (expectedStates.isNotEmpty &&
+          !expectedStates.contains(callbackState)) {
+        _showOAuthDebugDialog(
+          '''$_googleOAuthDebugPrefix
+phase: state_mismatch_before_exchange
+screen: register
+callback_state: $callbackState
+expected_states: ${expectedStates.join(', ')}
+uri_base: ${Uri.base}''',
+        );
+        return;
+      }
+
+      context.read<AuthBloc>().add(
+            GoogleOAuthExchangeEvent(
+              authCode: authCode,
+              state: callbackState,
+            ),
+          );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Không thể xử lý đăng nhập Google. Vui lòng thử lại.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      _isHandlingOAuthCallback = false;
+    }
+  }
+
+  void _showOAuthDebugDialog(String rawDebugMessage) {
     if (!mounted) {
       return;
     }
 
-    if (expectedState != null && expectedState != callbackState) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('State không khớp, vui lòng đăng nhập Google lại'),
-          backgroundColor: Colors.red,
-        ),
-      );
+    final debugText =
+        rawDebugMessage.replaceFirst(_googleOAuthDebugPrefix, '').trim();
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Google OAuth Debug'),
+          content: SingleChildScrollView(
+            child: SelectableText(debugText),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Đóng'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: debugText));
+                if (!mounted) {
+                  return;
+                }
+
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Đã copy thông tin Google OAuth debug'),
+                  ),
+                );
+              },
+              child: const Text('Copy'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _handleAuthError(String message) {
+    if (message.startsWith(_googleOAuthDebugPrefix)) {
+      _showOAuthDebugDialog(message);
       return;
     }
 
-    context.read<AuthBloc>().add(
-          GoogleOAuthExchangeEvent(
-            authCode: authCode,
-            state: callbackState,
-          ),
-        );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  void _clearOAuthCallbackFromBrowserUrl() {
+    if (!kIsWeb || !mounted) {
+      return;
+    }
+
+    context.replace(AppRoutes.register);
   }
 
   Map<String, String>? _extractGoogleCallbackParamsFromFragment(
@@ -349,12 +484,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             // Navigate to home screen
             context.go(AppRoutes.home);
           } else if (state is AuthError) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.message),
-                backgroundColor: Colors.red,
-              ),
-            );
+            _handleAuthError(state.message);
           }
         },
         child: SafeArea(

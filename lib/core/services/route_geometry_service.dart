@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:dio/dio.dart';
 import 'package:injectable/injectable.dart';
 import 'package:latlong2/latlong.dart';
@@ -855,7 +857,21 @@ class RouteGeometryService {
           radiusScale: radiusScale,
         ),
       );
-      return _extractMatchPoints(response.data);
+      final matchedWithBearings = _extractMatchPoints(response.data);
+      if (matchedWithBearings != null && matchedWithBearings.length >= 2) {
+        return matchedWithBearings;
+      }
+
+      // Retry once without directional constraints if matching was too strict.
+      _recordOsrmRequest('match');
+      final fallbackResponse = await _dio.getUri(
+        _buildMatchUri(
+          points,
+          radiusScale: radiusScale,
+          includeBearings: false,
+        ),
+      );
+      return _extractMatchPoints(fallbackResponse.data);
     } catch (e) {
       final isTooBig = _isTooBigMatchError(e);
       if (isTooBig) {
@@ -1051,6 +1067,7 @@ class RouteGeometryService {
   Uri _buildMatchUri(
     List<LatLng> coordinates, {
     double radiusScale = 1.0,
+    bool includeBearings = true,
   }) {
     final coordinatePath = coordinates
         .map((point) => '${point.longitude},${point.latitude}')
@@ -1061,15 +1078,78 @@ class RouteGeometryService {
       radiusScale: radiusScale,
     ).join(';');
 
+    final queryParams = <String, String>{
+      'overview': 'full',
+      'geometries': 'geojson',
+      'gaps': 'ignore',
+      'tidy': 'true',
+      'radiuses': radiuses,
+    };
+
+    if (includeBearings && coordinates.length >= 2) {
+      queryParams['bearings'] = _buildMatchBearings(coordinates).join(';');
+    }
+
     return Uri.parse('$_osrmMatchBaseUrl$coordinatePath').replace(
-      queryParameters: {
-        'overview': 'full',
-        'geometries': 'geojson',
-        'gaps': 'ignore',
-        'tidy': 'true',
-        'radiuses': radiuses,
-      },
+      queryParameters: queryParams,
     );
+  }
+
+  List<String> _buildMatchBearings(List<LatLng> points) {
+    if (points.length < 2) {
+      return List.filled(points.length, '');
+    }
+
+    final bearings = <String>[];
+    for (var index = 0; index < points.length; index++) {
+      if (index == 0) {
+        final heading = _bearingDegrees(points[index], points[index + 1]);
+        bearings.add('${heading.round()},70');
+        continue;
+      }
+
+      if (index == points.length - 1) {
+        final heading = _bearingDegrees(points[index - 1], points[index]);
+        bearings.add('${heading.round()},70');
+        continue;
+      }
+
+      final previous = points[index - 1];
+      final current = points[index];
+      final next = points[index + 1];
+
+      final incoming = _bearingDegrees(previous, current);
+      final outgoing = _bearingDegrees(current, next);
+      final lookahead = _bearingDegrees(previous, next);
+      final turnDelta = _bearingDeltaDegrees(incoming, outgoing);
+
+      final range = turnDelta <= 25 ? 55 : (turnDelta <= 55 ? 72 : 95);
+      bearings.add('${lookahead.round()},$range');
+    }
+
+    return bearings;
+  }
+
+  double _bearingDegrees(LatLng from, LatLng to) {
+    final lat1 = _toRadians(from.latitude);
+    final lat2 = _toRadians(to.latitude);
+    final deltaLon = _toRadians(to.longitude - from.longitude);
+
+    final y = math.sin(deltaLon) * math.cos(lat2);
+    final x = (math.cos(lat1) * math.sin(lat2)) -
+        (math.sin(lat1) * math.cos(lat2) * math.cos(deltaLon));
+    final raw = math.atan2(y, x) * (180 / math.pi);
+
+    return (raw + 360) % 360;
+  }
+
+  double _bearingDeltaDegrees(double a, double b) {
+    final diff = (a - b).abs() % 360;
+    return diff > 180 ? 360 - diff : diff;
+  }
+
+  double _toRadians(double degrees) {
+    return degrees * (math.pi / 180.0);
   }
 
   List<String> _buildMatchRadii(

@@ -823,68 +823,156 @@ out body;
 
     if (!mounted || _apiRoutes.isEmpty) return;
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.75,
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            const Text('Chọn tuyến xe',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _apiRoutes.length,
-                itemBuilder: (context, index) {
-                  final route = _apiRoutes[index];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ExpansionTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.blue,
-                        child: Text(
-                          route['routeCode'] ?? '?',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
+    final searchController = TextEditingController();
+
+    try {
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (context) => StatefulBuilder(
+          builder: (context, setSearchState) {
+            final query = searchController.text.trim().toLowerCase();
+            final filteredRoutes = query.isEmpty
+                ? _apiRoutes
+                : _apiRoutes.where((route) {
+                    final routeCode =
+                        (route['routeCode'] ?? '').toString().toLowerCase();
+                    final routeName =
+                        (route['routeName'] ?? '').toString().toLowerCase();
+                    final startPoint =
+                        (route['startPoint'] ?? '').toString().toLowerCase();
+                    final endPoint =
+                        (route['endPoint'] ?? '').toString().toLowerCase();
+                    return routeCode.contains(query) ||
+                        routeName.contains(query) ||
+                        startPoint.contains(query) ||
+                        endPoint.contains(query);
+                  }).toList();
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.75,
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  const Text('Chọn tuyến xe',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Tìm tuyến theo mã, tên hoặc điểm đầu-cuối',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIconConstraints: const BoxConstraints(
+                        minWidth: 44,
+                        minHeight: 44,
+                        maxWidth: 176,
+                      ),
+                      suffixIcon: SizedBox(
+                        width: 132,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            VoiceInputIconButton(
+                              controller: searchController,
+                              tooltip: 'Nhập từ khóa tuyến bằng giọng nói',
+                              stopTooltip: 'Dừng nhập giọng nói',
+                              onTextChanged: (_) => setSearchState(() {}),
+                            ),
+                            TtsIconButton(
+                              controller: searchController,
+                              tooltip: 'Đọc từ khóa tìm tuyến',
+                              emptyMessage:
+                                  'Bạn chưa nhập từ khóa tuyến để đọc.',
+                            ),
+                            if (searchController.text.trim().isNotEmpty)
+                              IconButton(
+                                icon: const Icon(Icons.close_rounded),
+                                tooltip: 'Xóa từ khóa',
+                                onPressed: () {
+                                  searchController.clear();
+                                  setSearchState(() {});
+                                },
+                              ),
+                          ],
                         ),
                       ),
-                      title: Text(route['routeName'] ?? 'N/A'),
-                      subtitle: Text('${route['totalDistance'] ?? 0} km'),
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.arrow_forward),
-                          title: const Text('Lượt đi'),
-                          onTap: () async {
-                            Navigator.pop(context);
-                            // Fetch full route data
-                            await _fetchAndDrawRoute(route['routeCode'], true);
-                          },
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.arrow_back),
-                          title: const Text('Lượt về'),
-                          onTap: () async {
-                            Navigator.pop(context);
-                            await _fetchAndDrawRoute(route['routeCode'], false);
-                          },
-                        ),
-                      ],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                  );
-                },
+                    onChanged: (_) => setSearchState(() {}),
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: filteredRoutes.isEmpty
+                        ? const Center(
+                            child: Text('Không tìm thấy tuyến phù hợp'),
+                          )
+                        : ListView.builder(
+                            itemCount: filteredRoutes.length,
+                            itemBuilder: (context, index) {
+                              final route = filteredRoutes[index];
+                              final routeCode =
+                                  (route['routeCode'] ?? '').toString().trim();
+                              final displayRouteCode =
+                                  routeCode.isEmpty ? '?' : routeCode;
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: ExpansionTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: Colors.blue,
+                                    child: Text(
+                                      displayRouteCode,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  title: Text(
+                                      (route['routeName'] ?? 'N/A').toString()),
+                                  subtitle:
+                                      Text('${route['totalDistance'] ?? 0} km'),
+                                  children: [
+                                    ListTile(
+                                      leading: const Icon(Icons.arrow_forward),
+                                      title: const Text('Lượt đi'),
+                                      onTap: () async {
+                                        Navigator.pop(context);
+                                        await _fetchAndDrawRoute(
+                                            routeCode, true);
+                                      },
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(Icons.arrow_back),
+                                      title: const Text('Lượt về'),
+                                      onTap: () async {
+                                        Navigator.pop(context);
+                                        await _fetchAndDrawRoute(
+                                          routeCode,
+                                          false,
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ),
-            ),
-          ],
+            );
+          },
         ),
-      ),
-    );
+      );
+    } finally {
+      searchController.dispose();
+    }
   }
 
   // Fetch full route data and draw
@@ -1023,9 +1111,10 @@ out body;
                 PolylineLayer(
                   polylines: [
                     Polyline(
-                        points: _routePoints,
-                        color: scheme.primary,
-                        strokeWidth: 4.0)
+                      points: _routePoints,
+                      color: scheme.primary,
+                      strokeWidth: 4.0,
+                    )
                   ],
                 ),
               MarkerLayer(markers: _markers),
