@@ -1,0 +1,10 @@
+services:
+  smartgo-fe:
+    container_name: smartgo-fe
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: smartgo-fe:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
