@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -18,7 +20,11 @@ class RouteListScreen extends StatefulWidget {
 
 class _RouteListScreenState extends State<RouteListScreen> {
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _routeSearchController = TextEditingController();
+
+  Timer? _routeSearchDebounce;
   RouteDirection _selectedDirection = RouteDirection.both;
+  String _routeSearchQuery = '';
 
   @override
   void initState() {
@@ -31,7 +37,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
             FetchAllRoutesEvent(
               limit: 200,
               direction: _selectedDirection,
-              routeCode: '',
+              routeCode: _routeSearchQuery,
             ),
           );
     });
@@ -39,6 +45,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
 
   @override
   void dispose() {
+    _routeSearchDebounce?.cancel();
+    _routeSearchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -70,7 +78,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
             page: 1,
             limit: 200,
             direction: direction,
-            routeCode: '',
+            routeCode: _routeSearchQuery,
           ),
         );
   }
@@ -79,7 +87,39 @@ class _RouteListScreenState extends State<RouteListScreen> {
     context.read<RouteBloc>().add(
           RefreshRoutesEvent(
             direction: _selectedDirection,
-            routeCode: '',
+            routeCode: _routeSearchQuery,
+          ),
+        );
+  }
+
+  void _onRouteSearchChanged(String _) {
+    _routeSearchDebounce?.cancel();
+    _routeSearchDebounce = Timer(
+      const Duration(milliseconds: 350),
+      _triggerRouteSearch,
+    );
+  }
+
+  void _triggerRouteSearch() {
+    if (!mounted) {
+      return;
+    }
+
+    final query = _routeSearchController.text.trim();
+    if (query == _routeSearchQuery) {
+      return;
+    }
+
+    setState(() {
+      _routeSearchQuery = query;
+    });
+
+    context.read<RouteBloc>().add(
+          FetchAllRoutesEvent(
+            page: 1,
+            limit: 200,
+            direction: _selectedDirection,
+            routeCode: _routeSearchQuery,
           ),
         );
   }
@@ -128,114 +168,150 @@ class _RouteListScreenState extends State<RouteListScreen> {
           ),
         ],
       ),
-      body: BlocBuilder<RouteBloc, RouteState>(
-        builder: (context, state) {
-          if (state is RouteLoading) {
-            return const LoadingIndicator();
-          }
-
-          if (state is RouteError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: scheme.error,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    state.message,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: _refreshRoutes,
-                    child: const Text('Thử lại'),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          if (state is RouteLoaded || state is RouteLoadingMore) {
-            final routes = state is RouteLoaded
-                ? state.routes
-                : (state as RouteLoadingMore).currentRoutes;
-            final totalCount =
-                state is RouteLoaded ? state.totalCount : routes.length;
-
-            if (routes.isEmpty) {
-              return Center(
-                child: Text(
-                  'Không có tuyến xe buýt nào',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              );
-            }
-
-            return Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  color: scheme.surfaceContainerHighest,
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.directions_bus,
-                        size: 20,
-                        color: scheme.onSurfaceVariant,
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            child: TextField(
+              controller: _routeSearchController,
+              onChanged: _onRouteSearchChanged,
+              onSubmitted: (_) => _triggerRouteSearch(),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Tìm theo mã tuyến (VD: 01, 150)',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _routeSearchController.text.trim().isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        tooltip: 'Xóa từ khóa',
+                        onPressed: () {
+                          _routeSearchController.clear();
+                          _triggerRouteSearch();
+                        },
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Hiển thị ${routes.length}/$totalCount tuyến',
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w600,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: BlocBuilder<RouteBloc, RouteState>(
+              builder: (context, state) {
+                if (state is RouteLoading) {
+                  return const LoadingIndicator();
+                }
+
+                if (state is RouteError) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 64,
+                          color: scheme.error,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          state.message,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _refreshRoutes,
+                          child: const Text('Thử lại'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                if (state is RouteLoaded || state is RouteLoadingMore) {
+                  final routes = state is RouteLoaded
+                      ? state.routes
+                      : (state as RouteLoadingMore).currentRoutes;
+                  final totalCount =
+                      state is RouteLoaded ? state.totalCount : routes.length;
+
+                  if (routes.isEmpty) {
+                    return Center(
+                      child: Text(
+                        _routeSearchQuery.isEmpty
+                            ? 'Không có tuyến xe buýt nào'
+                            : 'Không tìm thấy tuyến phù hợp với "$_routeSearchQuery"',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                        textAlign: TextAlign.center,
+                      ),
+                    );
+                  }
+
+                  return Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        color: scheme.surfaceContainerHighest,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.directions_bus,
+                              size: 20,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Hiển thị ${routes.length}/$totalCount tuyến',
+                              style: TextStyle(
+                                color: scheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              _getDirectionText(),
+                              style: TextStyle(
+                                color: scheme.onSurfaceVariant,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const Spacer(),
-                      Text(
-                        _getDirectionText(),
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 12,
+                      Expanded(
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          itemCount: routes.length +
+                              (state is RouteLoadingMore ||
+                                      (state is RouteLoaded &&
+                                          state.hasMorePages)
+                                  ? 1
+                                  : 0),
+                          itemBuilder: (context, index) {
+                            if (index >= routes.length) {
+                              return const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(16.0),
+                                  child: LoadingIndicator(size: 28),
+                                ),
+                              );
+                            }
+
+                            final route = routes[index];
+                            return _buildRouteCard(route);
+                          },
                         ),
                       ),
                     ],
-                  ),
-                ),
-                Expanded(
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    itemCount: routes.length +
-                        (state is RouteLoadingMore ||
-                                (state is RouteLoaded && state.hasMorePages)
-                            ? 1
-                            : 0),
-                    itemBuilder: (context, index) {
-                      if (index >= routes.length) {
-                        return const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(16.0),
-                            child: LoadingIndicator(size: 28),
-                          ),
-                        );
-                      }
+                  );
+                }
 
-                      final route = routes[index];
-                      return _buildRouteCard(route);
-                    },
-                  ),
-                ),
-              ],
-            );
-          }
-
-          return const Center(child: Text('Chọn tuyến để xem chi tiết'));
-        },
+                return const Center(child: Text('Chọn tuyến để xem chi tiết'));
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
