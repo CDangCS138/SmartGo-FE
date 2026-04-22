@@ -20,7 +20,7 @@ cd "${APP_DIR}"
 echo "==> Fetch latest source"
 git fetch --all --prune
 git checkout "${BRANCH}"
-git pull --ff-only origin "${BRANCH}"
+git reset --hard origin/"${BRANCH}"
 
 echo "==> Build and restart containers"
 docker compose down
