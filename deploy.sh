@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+
 APP_DIR="${APP_DIR:-/opt/smartgo-fe}"
 BRANCH="${BRANCH:-main}"
 
