@@ -3,7 +3,9 @@
 .dart_tool
 .idea
 .vscode
-build
+build/*
+!build/web/
+!build/web/**
 coverage
 android
 ios

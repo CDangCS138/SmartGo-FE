@@ -35,6 +35,11 @@ jobs:
       - name: Build web (release)
         run: flutter build web --release
 
+      - name: Verify build output
+        run: |
+          test -d build/web
+          ls -la build/web
+
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
