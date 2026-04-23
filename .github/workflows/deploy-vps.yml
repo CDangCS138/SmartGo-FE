@@ -12,12 +12,16 @@ jobs:
     permissions:
       contents: read
       packages: write
-    env:
-      IMAGE_NAME: ghcr.io/${{ github.repository }}
-      IMAGE_TAG: ${{ github.sha }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Prepare image metadata
+        id: meta
+        shell: bash
+        run: |
+          echo "image_name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -44,8 +48,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-            ${{ env.IMAGE_NAME }}:latest
+            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.image_tag }}
+            ${{ steps.meta.outputs.image_name }}:latest
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -70,8 +74,8 @@ jobs:
 
             cd "$APP_DIR"
             chmod +x ./deploy.sh
-            IMAGE_NAME="${{ env.IMAGE_NAME }}" \
-            IMAGE_TAG="${{ env.IMAGE_TAG }}" \
+            IMAGE_NAME="${{ steps.meta.outputs.image_name }}" \
+            IMAGE_TAG="${{ steps.meta.outputs.image_tag }}" \
             REGISTRY_HOST="ghcr.io" \
             REGISTRY_USERNAME="${{ secrets.GHCR_USERNAME }}" \
             REGISTRY_TOKEN="${{ secrets.GHCR_TOKEN }}" \
