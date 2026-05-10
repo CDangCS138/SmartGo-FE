@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -22,8 +23,11 @@ import 'package:smartgo/presentation/blocs/station/station_state.dart';
 import 'package:smartgo/domain/entities/station.dart';
 import 'package:smartgo/domain/entities/path_finding.dart';
 import 'package:smartgo/presentation/widgets/loading_indicator.dart';
+import 'package:smartgo/presentation/widgets/map/map_icons.dart';
 import 'package:smartgo/presentation/widgets/tts_icon_button.dart';
 import 'package:smartgo/presentation/widgets/voice_input_icon_button.dart';
+import 'package:smartgo/presentation/widgets/map_station_marker.dart';
+import 'package:smartgo/presentation/screens/home/widgets/home_navigation_bar.dart';
 
 /// Enum for input mode
 enum InputMode {
@@ -100,6 +104,9 @@ class PathFindingDemoScreen extends StatefulWidget {
 class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   final MapController _mapController = MapController();
 
+  ScaffoldMessengerState? _scaffoldMessenger;
+  ColorScheme? _colorScheme;
+
   // Map state
   LatLng? _fromPoint;
   LatLng? _toPoint;
@@ -147,6 +154,14 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   void initState() {
     super.initState();
     _loadStations();
+    _syncBottomNavVisibility();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
+    _colorScheme = Theme.of(context).colorScheme;
   }
 
   @override
@@ -156,7 +171,12 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     _toAddressController.dispose();
     _fromAddressDebounce?.cancel();
     _toAddressDebounce?.cancel();
+    HomeNavigationBar.isVisible.value = true;
     super.dispose();
+  }
+
+  void _syncBottomNavVisibility() {
+    HomeNavigationBar.isVisible.value = !_showResults && !_showFullRouteDetail;
   }
 
   void _loadStations() {
@@ -174,25 +194,58 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   }
 
   void _showInfo(String message) {
-    final scheme = Theme.of(context).colorScheme;
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = _scaffoldMessenger;
+    if (!mounted || messenger == null) {
+      return;
+    }
+
+    final scheme = _colorScheme;
+    messenger.showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: scheme.inverseSurface,
+        backgroundColor: scheme?.inverseSurface ?? Colors.black,
         duration: const Duration(seconds: 2),
       ),
     );
   }
 
   void _showError(String message) {
-    final scheme = Theme.of(context).colorScheme;
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = _scaffoldMessenger;
+    if (!mounted || messenger == null) {
+      return;
+    }
+
+    final scheme = _colorScheme;
+    messenger.showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: scheme.error,
+        backgroundColor: scheme?.error ?? Colors.red,
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+
+  void _onInputModeChanged(InputMode mode) {
+    if (_inputMode == mode) {
+      return;
+    }
+
+    setState(() {
+      _inputMode = mode;
+      _fromPoint = null;
+      _toPoint = null;
+      _fromStation = null;
+      _toStation = null;
+      _fromAddressDebounce?.cancel();
+      _toAddressDebounce?.cancel();
+      _fromAddressDebounce = null;
+      _toAddressDebounce = null;
+      _isSearchingAddress = false;
+      _fromAddressController.clear();
+      _toAddressController.clear();
+      _fromAddressResults.clear();
+      _toAddressResults.clear();
+    });
   }
 
   String _formatCostForSpeech(double value) {
@@ -341,19 +394,25 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   void _onMapTap(LatLng point) {
     if (_inputMode != InputMode.map) return;
 
+    String? infoMessage;
+
     setState(() {
       if (_fromPoint == null) {
         _fromPoint = point;
-        _showInfo('Đã chọn điểm xuất phát');
+        infoMessage = 'Đã chọn điểm xuất phát';
       } else if (_toPoint == null) {
         _toPoint = point;
-        _showInfo('Đã chọn điểm đích');
+        infoMessage = 'Đã chọn điểm đích';
       } else {
         _fromPoint = point;
         _toPoint = null;
-        _showInfo('Đã chọn lại điểm xuất phát');
+        infoMessage = 'Đã chọn lại điểm xuất phát';
       }
     });
+
+    if (infoMessage != null) {
+      _showInfo(infoMessage!);
+    }
   }
 
   void _onMapLongPress(LatLng point) async {
@@ -380,6 +439,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     }
 
     if (nearestStation != null) {
+      String? infoMessage;
       setState(() {
         if (_fromStation == null) {
           _fromStation = nearestStation;
@@ -387,14 +447,14 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
             nearestStation!.latitude,
             nearestStation.longitude,
           );
-          _showInfo('Đã chọn trạm xuất phát: ${nearestStation.stationName}');
+          infoMessage = 'Đã chọn trạm xuất phát: ${nearestStation.stationName}';
         } else if (_toStation == null) {
           _toStation = nearestStation;
           _toPoint = LatLng(
             nearestStation!.latitude,
             nearestStation.longitude,
           );
-          _showInfo('Đã chọn trạm đích: ${nearestStation.stationName}');
+          infoMessage = 'Đã chọn trạm đích: ${nearestStation.stationName}';
         } else {
           _fromStation = nearestStation;
           _toStation = null;
@@ -403,10 +463,14 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
             nearestStation.longitude,
           );
           _toPoint = null;
-          _showInfo(
-              'Đã chọn lại trạm xuất phát: ${nearestStation.stationName}');
+          infoMessage =
+              'Đã chọn lại trạm xuất phát: ${nearestStation.stationName}';
         }
       });
+
+      if (infoMessage != null) {
+        _showInfo(infoMessage!);
+      }
     } else {
       _showError('Không tìm thấy trạm xe buýt gần vị trí này');
     }
@@ -1478,57 +1542,15 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
       return Marker(
         point: LatLng(station.latitude, station.longitude),
-        width: 50,
-        height: 58,
-        child: GestureDetector(
+        width: 32,
+        height: 32,
+        child: MapStationMarker(
+          type: isStart
+              ? MarkerType.start
+              : (isEnd ? MarkerType.end : MarkerType.custom),
+          customColor: color,
+          label: markerLabel,
           onTap: () => _showInfo(station.stationName),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.22),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.directions_bus,
-                  color: Colors.white,
-                  size: 16,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                decoration: BoxDecoration(
-                  color: isStart
-                      ? Colors.green
-                      : isEnd
-                          ? Colors.red
-                          : color,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  markerLabel,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
       );
     }).toList();
@@ -1559,7 +1581,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                 border: Border.all(color: Colors.white, width: 2),
               ),
               child: const Icon(
-                Icons.alt_route,
+                MapIcons.route,
                 color: Colors.white,
                 size: 18,
               ),
@@ -1601,8 +1623,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       }
 
       final bounds = LatLngBounds.fromPoints(points);
-      final bottomPadding =
-          (_showResults && !_isMapUiCollapsed) ? 280.0 : 120.0;
+      final bottomPadding = _showResults ? 280.0 : 120.0;
       _mapController.fitCamera(
         CameraFit.bounds(
           bounds: bounds,
@@ -1683,6 +1704,20 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     final transitResult =
         await _routeGeometryService.buildTransitGeometryWithAccessPoints(
       stopCoordinates,
+      onGeometryRefined: (refinedGeometry) {
+        // Phase 2: background match refinement finished — update displayed
+        // geometry so polylines on the map update smoothly.
+        if (!mounted) return;
+        setState(() {
+          _safeCacheRouteGeometry(index, refinedGeometry);
+          if (refinedGeometry.length >= 2) {
+            _safeCacheRouteGeometrySegments(
+              index,
+              <List<LatLng>>[refinedGeometry],
+            );
+          }
+        });
+      },
     );
 
     final stationsWithAccessMetadata = _applyAccessMetadataToStations(
@@ -1996,6 +2031,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       _safeClearGeometryCaches();
       _routeGeometryRequestId++;
     });
+    _syncBottomNavVisibility();
 
     if (_inputMode == InputMode.busStop) {
       context.read<RouteBloc>().add(
@@ -2044,11 +2080,12 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       _fromAddressResults.clear();
       _toAddressResults.clear();
     });
+    _syncBottomNavVisibility();
   }
 
-  void _openSelectedPathDetail() {
+  void _openSelectedPathDetail({int? index}) {
     final paths = _paths;
-    final selectedIndex = _selectedPathIndex;
+    final selectedIndex = index ?? _selectedPathIndex;
     if (paths == null ||
         selectedIndex == null ||
         selectedIndex >= paths.length) {
@@ -2061,29 +2098,36 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     }
 
     setState(() {
+      _selectedPathIndex = selectedIndex;
       _showFullRouteDetail = true;
       _isSpeakingRouteGuide = false;
       _isMapUiCollapsed = false;
     });
+    _syncBottomNavVisibility();
   }
 
   void _selectAddress(NominatimResult result, bool isFrom) {
+    String? infoMessage;
     setState(() {
       final selectedPoint = LatLng(result.lat, result.lon);
       if (isFrom) {
         _fromPoint = selectedPoint;
         _fromAddressController.text = result.displayName;
         _fromAddressResults.clear();
-        _showInfo('Đã chọn điểm xuất phát');
+        infoMessage = 'Đã chọn điểm xuất phát';
       } else {
         _toPoint = selectedPoint;
         _toAddressController.text = result.displayName;
         _toAddressResults.clear();
-        _showInfo('Đã chọn điểm đến');
+        infoMessage = 'Đã chọn điểm đến';
       }
       // Di chuyển map đến vị trí được chọn
       _mapController.move(selectedPoint, 15);
     });
+
+    if (infoMessage != null) {
+      _showInfo(infoMessage!);
+    }
   }
 
   @override
@@ -2096,26 +2140,6 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Tìm đường'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              if (Navigator.of(context).canPop()) {
-                context.pop();
-              } else {
-                context.go('/');
-              }
-            },
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _reset,
-              tooltip: 'Đặt lại',
-            ),
-          ],
-        ),
         body: MultiBlocListener(
           listeners: [
             BlocListener<StationBloc, StationState>(
@@ -2151,6 +2175,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                     _safeClearGeometryCaches();
                     _routeGeometryRequestId++;
                   });
+                  _syncBottomNavVisibility();
                   _showInfo('Tìm thấy $pathsCount lộ trình');
                   // Load actual route geometry for all paths
                   if (pathsCount > 0) {
@@ -2171,29 +2196,23 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                     _routeGeometryRequestId++;
                     _isSpeakingRouteGuide = false;
                   });
+                  _syncBottomNavVisibility();
                   _showError('Lỗi tìm đường: ${state.message}');
                 }
               },
             ),
           ],
           child: Stack(
+            clipBehavior: Clip.none,
             children: [
               _buildMap(),
-              if (!_showFullRouteDetail && !_isMapUiCollapsed) _buildTopPanel(),
-              if (_inputMode == InputMode.address &&
-                  !_showFullRouteDetail &&
-                  !_isMapUiCollapsed)
-                _buildAddressInputPanel(),
-              if (_showResults &&
-                  _paths != null &&
-                  !_showFullRouteDetail &&
-                  !_isMapUiCollapsed)
+              if (!_showFullRouteDetail) _buildTopPanel(),
+              if (_showResults && _paths != null && !_showFullRouteDetail)
                 _buildResultsPanel(_paths!),
               if (_showFullRouteDetail &&
                   _paths != null &&
                   _selectedPathIndex != null)
                 _buildFullRouteDetailView(_paths![_selectedPathIndex!]),
-              if (!_showFullRouteDetail) _buildMapUiToggleButton(),
               if (_isLoading) _buildLoadingOverlay(),
             ],
           ),
@@ -2237,7 +2256,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         // Show loading indicator for route geometry
         if (_isLoadingGeometry)
           Positioned(
-            bottom: (_showResults && !_isMapUiCollapsed) ? 260 : 100,
+            bottom: _showResults ? 220 : 100,
             left: 16,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -2338,10 +2357,12 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
             station.latitude,
             station.longitude,
           ),
-          width: 28,
-          height: 28,
-          child: GestureDetector(
+          width: 26,
+          height: 26,
+          child: MapStationMarker(
+            type: MarkerType.normal,
             onTap: () {
+              String? infoMessage;
               setState(() {
                 if (_fromStation == null) {
                   _fromStation = station;
@@ -2349,14 +2370,15 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                     station.latitude,
                     station.longitude,
                   );
-                  _showInfo('Đã chọn trạm xuất phát: ${station.stationName}');
+                  infoMessage =
+                      'Đã chọn trạm xuất phát: ${station.stationName}';
                 } else if (_toStation == null) {
                   _toStation = station;
                   _toPoint = LatLng(
                     station.latitude,
                     station.longitude,
                   );
-                  _showInfo('Đã chọn trạm đích: ${station.stationName}');
+                  infoMessage = 'Đã chọn trạm đích: ${station.stationName}';
                 } else {
                   _fromStation = station;
                   _toStation = null;
@@ -2365,33 +2387,15 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                     station.longitude,
                   );
                   _toPoint = null;
-                  _showInfo(
-                      'Đã chọn lại trạm xuất phát: ${station.stationName}');
+                  infoMessage =
+                      'Đã chọn lại trạm xuất phát: ${station.stationName}';
                 }
               });
+
+              if (infoMessage != null) {
+                _showInfo(infoMessage!);
+              }
             },
-            child: Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white,
-                  width: 2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.25),
-                    blurRadius: 3,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.directions_bus,
-                color: Colors.white,
-                size: 14,
-              ),
-            ),
           ),
         ),
       );
@@ -2408,38 +2412,11 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       markers.add(
         Marker(
           point: _fromPoint!,
-          width: 50,
-          height: 50,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              const Positioned(
-                bottom: 0,
-                child: Icon(Icons.location_on, color: Colors.green, size: 40),
-              ),
-              Positioned(
-                top: -18,
-                left: 0,
-                right: 0,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.green,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text(
-                    'Điểm A',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          width: 32,
+          height: 32,
+          child: const MapStationMarker(
+            type: MarkerType.start,
+            label: 'A',
           ),
         ),
       );
@@ -2450,38 +2427,11 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       markers.add(
         Marker(
           point: _toPoint!,
-          width: 50,
-          height: 50,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              const Positioned(
-                bottom: 0,
-                child: Icon(Icons.location_on, color: Colors.red, size: 40),
-              ),
-              Positioned(
-                top: -18,
-                left: 0,
-                right: 0,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.red,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text(
-                    'Điểm B',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          width: 32,
+          height: 32,
+          child: const MapStationMarker(
+            type: MarkerType.end,
+            label: 'B',
           ),
         ),
       );
@@ -2496,29 +2446,11 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
               _fromStation!.latitude,
               _fromStation!.longitude,
             ),
-            width: 40,
-            height: 40,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.green,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white,
-                  width: 3,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.25),
-                    blurRadius: 3,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.directions_bus,
-                color: Colors.white,
-                size: 18,
-              ),
+            width: 32,
+            height: 32,
+            child: const MapStationMarker(
+              type: MarkerType.start,
+              label: 'A',
             ),
           ),
         );
@@ -2531,29 +2463,11 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
               _toStation!.latitude,
               _toStation!.longitude,
             ),
-            width: 40,
-            height: 40,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.red,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white,
-                  width: 3,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.25),
-                    blurRadius: 3,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.directions_bus,
-                color: Colors.white,
-                size: 18,
-              ),
+            width: 32,
+            height: 32,
+            child: const MapStationMarker(
+              type: MarkerType.end,
+              label: 'B',
             ),
           ),
         );
@@ -2565,35 +2479,59 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
   Widget _buildTopPanel() {
     final scheme = Theme.of(context).colorScheme;
+    final panelMaxHeight = _inputMode == InputMode.address
+        ? MediaQuery.of(context).size.height * 0.9
+        : MediaQuery.of(context).size.height * 0.55;
 
     return Positioned(
       top: 0,
       left: 0,
       right: 0,
-      child: Container(
-        margin: const EdgeInsets.all(16),
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.5,
-        ),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+      child: SafeArea(
+        bottom: false,
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          constraints: BoxConstraints(
+            maxHeight: panelMaxHeight,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.surface.withValues(alpha: 0.94),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: scheme.outlineVariant.withValues(alpha: 0.4),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      blurRadius: 18,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildModeSelector(),
+                      if (!_isMapUiCollapsed) ...[
+                        if (_inputMode == InputMode.address)
+                          _buildAddressInputPanel(),
+                        if (_inputMode != InputMode.address &&
+                            (_fromPoint != null || _toPoint != null))
+                          _buildSelectedPointsSummary(),
+                        const Divider(height: 1),
+                        _buildCriteriaSelector(),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
             ),
-          ],
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildModeSelector(),
-              const Divider(height: 1),
-              _buildCriteriaSelector(),
-            ],
           ),
         ),
       ),
@@ -2601,16 +2539,222 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   }
 
   Widget _buildModeSelector() {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
       child: Row(
         children: [
-          _buildModeButton(InputMode.map, Icons.map, 'Bản đồ'),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.4),
+                ),
+              ),
+              child: Row(
+                children: [
+                  _buildModeButton(InputMode.map, MapIcons.mapMode, 'Bản đồ'),
+                  const SizedBox(width: 6),
+                  _buildModeButton(
+                      InputMode.busStop, MapIcons.busStopMode, 'Trạm'),
+                  const SizedBox(width: 6),
+                  _buildModeButton(
+                      InputMode.address, MapIcons.addressMode, 'Địa chỉ'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          _buildHeaderIconButton(
+            tooltip: _isMapUiCollapsed
+                ? 'Hiện bảng điều khiển'
+                : 'Ẩn bảng điều khiển',
+            icon: _isMapUiCollapsed ? Icons.visibility : Icons.visibility_off,
+            onPressed: () {
+              setState(() {
+                _isMapUiCollapsed = !_isMapUiCollapsed;
+              });
+            },
+          ),
           const SizedBox(width: 8),
-          _buildModeButton(InputMode.busStop, Icons.directions_bus, 'Trạm'),
-          const SizedBox(width: 8),
-          _buildModeButton(InputMode.address, Icons.search, 'Địa chỉ'),
+          _buildHeaderIconButton(
+            tooltip: 'Đặt lại',
+            icon: Icons.refresh,
+            onPressed: _reset,
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderIconButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      style: IconButton.styleFrom(
+        backgroundColor: scheme.surfaceContainerHighest,
+        foregroundColor: scheme.onSurfaceVariant,
+        padding: const EdgeInsets.all(10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
+
+  Widget _buildSelectedPointsSummary() {
+    final fromLabel = _resolvePointLabel(isFrom: true);
+    final toLabel = _resolvePointLabel(isFrom: false);
+
+    if (fromLabel == null && toLabel == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: Row(
+        children: [
+          if (fromLabel != null)
+            _buildPointChip(
+              label: fromLabel,
+              badge: 'A',
+              background: const Color(0xFFE7F6F4),
+              foreground: const Color(0xFF12756D),
+              badgeColor: const Color(0xFF0F766E),
+            ),
+          if (fromLabel != null && toLabel != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: _swapFromTo,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.grey.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.swap_horiz,
+                      size: 16,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (toLabel != null)
+            _buildPointChip(
+              label: toLabel,
+              badge: 'B',
+              background: const Color(0xFFFFECEB),
+              foreground: const Color(0xFFB42318),
+              badgeColor: const Color(0xFFEF4444),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String? _resolvePointLabel({required bool isFrom}) {
+    final station = isFrom ? _fromStation : _toStation;
+    if (station != null) {
+      return station.stationName;
+    }
+
+    final controllerText =
+        isFrom ? _fromAddressController.text : _toAddressController.text;
+    if (controllerText.trim().isNotEmpty) {
+      return controllerText.trim();
+    }
+
+    return null;
+  }
+
+  void _swapFromTo() {
+    setState(() {
+      final tempPoint = _fromPoint;
+      _fromPoint = _toPoint;
+      _toPoint = tempPoint;
+
+      final tempStation = _fromStation;
+      _fromStation = _toStation;
+      _toStation = tempStation;
+
+      final tempText = _fromAddressController.text;
+      _fromAddressController.text = _toAddressController.text;
+      _toAddressController.text = tempText;
+
+      _fromAddressResults.clear();
+      _toAddressResults.clear();
+    });
+  }
+
+  Widget _buildPointChip({
+    required String label,
+    required String badge,
+    required Color background,
+    required Color foreground,
+    required Color badgeColor,
+  }) {
+    return Flexible(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: badgeColor,
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  badge,
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    height: 1.1,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: foreground,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2619,68 +2763,183 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     final scheme = Theme.of(context).colorScheme;
     final isSelected = _inputMode == mode;
     return Expanded(
-      child: ElevatedButton.icon(
-        onPressed: () {
-          setState(() {
-            _inputMode = mode;
-          });
-        },
-        icon: Icon(icon, size: 18),
-        label: Text(label),
-        style: ElevatedButton.styleFrom(
-          backgroundColor:
-              isSelected ? scheme.primary : scheme.surfaceContainerHighest,
-          foregroundColor: isSelected ? scheme.onPrimary : scheme.onSurface,
-          padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => _onInputModeChanged(mode),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: isSelected ? scheme.surface : Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: isSelected ? scheme.primary : scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                    color:
+                        isSelected ? scheme.onSurface : scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
   Widget _buildCriteriaSelector() {
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(
+    final scheme = Theme.of(context).colorScheme;
+    const double controlHeight = 48;
+
+    Widget buildField({
+      required String label,
+      required Widget child,
+      Widget? trailing,
+    }) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          DropdownButtonFormField<RoutingCriteria>(
-            initialValue: _selectedCriteria,
-            decoration: const InputDecoration(
-              labelText: 'Tiêu chí tối ưu',
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurfaceVariant,
             ),
-            items: RoutingCriteria.values.map((criteria) {
-              return DropdownMenuItem(
-                value: criteria,
-                child: Text(criteria.displayName),
-              );
-            }).toList(),
-            onChanged: (value) {
-              if (value != null) {
-                setState(() {
-                  _selectedCriteria = value;
-                });
-              }
-            },
           ),
-          const SizedBox(height: 12),
-          TextFormField(
-            initialValue: _maxTransfers.toString(),
-            decoration: const InputDecoration(
-              labelText: 'Số lần chuyển tuyến tối đa',
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              suffixIcon: Icon(Icons.transfer_within_a_station),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: controlHeight,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.45),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Expanded(child: child),
+                  if (trailing != null) ...[
+                    const SizedBox(width: 8),
+                    IconTheme(
+                      data: IconThemeData(
+                        color: scheme.onSurfaceVariant,
+                        size: 18,
+                      ),
+                      child: trailing,
+                    ),
+                  ],
+                ],
+              ),
             ),
-            keyboardType: TextInputType.number,
-            onChanged: (value) {
-              final parsed = int.tryParse(value);
-              if (parsed != null && parsed >= 0 && parsed <= 10) {
-                setState(() {
-                  _maxTransfers = parsed;
-                });
-              }
-            },
+          ),
+        ],
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: buildField(
+              label: 'Tiêu chí',
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<RoutingCriteria>(
+                  value: _selectedCriteria,
+                  isExpanded: true,
+                  icon: const Icon(Icons.expand_more),
+                  items: RoutingCriteria.values.map((criteria) {
+                    return DropdownMenuItem(
+                      value: criteria,
+                      child: Text(criteria.displayName),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _selectedCriteria = value;
+                      });
+                    }
+                  },
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: buildField(
+              label: 'Chuyển tuyến',
+              trailing: const Icon(MapIcons.transfer),
+              child: TextFormField(
+                initialValue: _maxTransfers.toString(),
+                decoration: const InputDecoration.collapsed(
+                  hintText: '0 - 10',
+                ),
+                keyboardType: TextInputType.number,
+                onChanged: (value) {
+                  final parsed = int.tryParse(value);
+                  if (parsed != null && parsed >= 0 && parsed <= 10) {
+                    setState(() {
+                      _maxTransfers = parsed;
+                    });
+                  }
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            height: controlHeight,
+            child: ElevatedButton.icon(
+              onPressed: _isLoading ? null : _findPath,
+              icon: const Icon(MapIcons.search, size: 18),
+              label: const Text('Tìm'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                backgroundColor: scheme.primary,
+                foregroundColor: scheme.onPrimary,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -2689,87 +2948,109 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
   Widget _buildResultsPanel(List<PathResult> paths) {
     final scheme = Theme.of(context).colorScheme;
-    final hasValidSelection =
-        _selectedPathIndex != null && _selectedPathIndex! < paths.length;
+    final navOverlap = HomeNavigationBar.isVisible.value
+        ? kBottomNavigationBarHeight + MediaQuery.of(context).padding.bottom
+        : 0.0;
 
-    return Positioned(
-      bottom: 0,
-      left: 0,
-      right: 0,
-      child: Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.5,
-        ),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 8,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Tìm thấy ${paths.length} lộ trình',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+    return Positioned.fill(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Transform.translate(
+          offset: Offset(0, -navOverlap),
+          child: DraggableScrollableSheet(
+            expand: false,
+            minChildSize: 0.2,
+            initialChildSize: 0.45,
+            maxChildSize: 0.78,
+            builder: (context, scrollController) {
+              return Container(
+                decoration: BoxDecoration(
+                  color: scheme.surface.withValues(alpha: 0.98),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(24)),
+                  border: Border.all(
+                    color: scheme.outlineVariant.withValues(alpha: 0.4),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      blurRadius: 16,
+                      offset: const Offset(0, -4),
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () {
-                      setState(() {
-                        _showResults = false;
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-            if (hasValidSelection)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: _openSelectedPathDetail,
-                    icon: const Icon(Icons.article_outlined),
-                    label: Text(
-                      'Xem chi tiết lộ trình ${_selectedPathIndex! + 1}',
-                    ),
-                  ),
+                  ],
                 ),
-              ),
-            const Divider(height: 1),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: paths.length,
-                itemBuilder: (context, index) {
-                  return _buildPathCard(paths[index], index);
-                },
-              ),
-            ),
-          ],
+                child: CustomScrollView(
+                  controller: scrollController,
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 8),
+                          Container(
+                            width: 36,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[300],
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Tìm thấy ${paths.length} lộ trình',
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Đóng kết quả',
+                                  icon: const Icon(Icons.close),
+                                  onPressed: () {
+                                    setState(() {
+                                      _showResults = false;
+                                    });
+                                    _syncBottomNavVisibility();
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Divider(height: 1),
+                        ],
+                      ),
+                    ),
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          return _buildPathCard(paths[index], index);
+                        },
+                        childCount: paths.length,
+                      ),
+                    ),
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: 16),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
   }
 
   Widget _buildPathCard(PathResult path, int index) {
+    final scheme = Theme.of(context).colorScheme;
     final isSelected = _selectedPathIndex == index;
     final routeColor = _pathColor(index);
+    final selectedSurface =
+        Color.lerp(scheme.surface, routeColor, 0.12) ?? scheme.surface;
     final stationAccessWalkingLegs = path.stationAccessWalkingLegs;
     final stationAccessDistanceKm = stationAccessWalkingLegs.fold<double>(
       0,
@@ -2782,16 +3063,19 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      elevation: isSelected ? 4 : 1,
-      color: isSelected ? routeColor.withValues(alpha: 0.15) : null,
+      elevation: isSelected ? 6 : 1,
+      color: isSelected ? selectedSurface : scheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: isSelected ? routeColor : Colors.transparent,
-          width: 1.4,
+          color: isSelected
+              ? routeColor.withValues(alpha: 0.8)
+              : scheme.outlineVariant.withValues(alpha: 0.4),
+          width: 1.2,
         ),
       ),
       child: InkWell(
+        borderRadius: BorderRadius.circular(16),
         onTap: () {
           if (_isSpeakingRouteGuide) {
             TextToSpeechService.instance.stop();
@@ -2851,20 +3135,25 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                 ],
               ),
               const SizedBox(height: 8),
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: [
-                  Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 4),
-                  Text(path.formattedTime),
-                  const SizedBox(width: 16),
-                  Icon(Icons.route, size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 4),
-                  Text(path.formattedDistance),
-                  const SizedBox(width: 16),
-                  Icon(Icons.monetization_on,
-                      size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 4),
-                  Text(path.formattedCost),
+                  _buildPathMetricChip(
+                    icon: Icons.access_time,
+                    label: path.formattedTime,
+                    color: scheme.primary,
+                  ),
+                  _buildPathMetricChip(
+                    icon: MapIcons.route,
+                    label: path.formattedDistance,
+                    color: scheme.tertiary,
+                  ),
+                  _buildPathMetricChip(
+                    icon: Icons.monetization_on,
+                    label: path.formattedCost,
+                    color: scheme.secondary,
+                  ),
                 ],
               ),
               if (path.transfers != null) ...[
@@ -2888,6 +3177,23 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                   style: TextStyle(color: Colors.grey[600], fontSize: 12),
                 ),
               ],
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => _openSelectedPathDetail(index: index),
+                  icon: const Icon(Icons.article_outlined, size: 16),
+                  label: const Text('Xem chi tiết'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: scheme.primary,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -2895,36 +3201,46 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     );
   }
 
-  Widget _buildMapUiToggleButton() {
+  Widget _buildPathMetricChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
     final scheme = Theme.of(context).colorScheme;
-    return Positioned(
-      top: 12,
-      right: 16,
-      child: Material(
-        color: scheme.surface,
-        elevation: 3,
-        shape: const CircleBorder(),
-        child: IconButton(
-          tooltip:
-              _isMapUiCollapsed ? 'Hiện bảng điều khiển' : 'Ẩn bảng điều khiển',
-          onPressed: () {
-            setState(() {
-              _isMapUiCollapsed = !_isMapUiCollapsed;
-            });
-          },
-          icon: Icon(
-            _isMapUiCollapsed ? Icons.visibility : Icons.visibility_off,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
   Widget _buildFAB() {
+    final scheme = Theme.of(context).colorScheme;
     return FloatingActionButton.extended(
       onPressed: _findPath,
-      icon: const Icon(Icons.search),
+      icon: const Icon(MapIcons.search),
       label: const Text('Tìm đường'),
+      backgroundColor: scheme.primary,
+      foregroundColor: scheme.onPrimary,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
     );
   }
 
@@ -2994,30 +3310,13 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   Widget _buildAddressInputPanel() {
     final scheme = Theme.of(context).colorScheme;
 
-    return Positioned(
-      top: 200,
-      left: 16,
-      right: 16,
-      child: Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.6,
-        ),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
             children: [
               const Text(
                 'Nhập địa chỉ',
@@ -3026,174 +3325,307 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _fromAddressController,
-                decoration: InputDecoration(
-                  labelText: 'Điểm xuất phát',
-                  hintText: 'VD: 268 Lý Thường Kiệt, Quận 10, TP.HCM',
-                  prefixIcon: Icon(Icons.my_location, color: scheme.primary),
-                  border: const OutlineInputBorder(),
-                  suffixIconConstraints: const BoxConstraints(
-                    minWidth: 44,
-                    minHeight: 44,
-                    maxWidth: 140,
-                  ),
-                  suffixIcon: SizedBox(
-                    width: _fromAddressController.text.isNotEmpty ? 132 : 88,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        VoiceInputIconButton(
-                          controller: _fromAddressController,
-                          tooltip: 'Nhập điểm xuất phát bằng giọng nói',
-                          stopTooltip: 'Dừng nhập giọng nói',
-                          onTextChanged: _onFromAddressInputChanged,
-                        ),
-                        TtsIconButton(
-                          controller: _fromAddressController,
-                          tooltip: 'Đọc điểm xuất phát',
-                          emptyMessage: 'Bạn chưa nhập điểm xuất phát để đọc.',
-                        ),
-                        if (_fromAddressController.text.isNotEmpty)
-                          IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              setState(() {
-                                _fromAddressController.clear();
-                                _fromPoint = null;
-                                _fromAddressResults.clear();
-                              });
-                            },
-                          ),
-                      ],
-                    ),
+              if (_isSearchingAddress) ...[
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: scheme.primary,
                   ),
                 ),
-                onChanged: _onFromAddressInputChanged,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _toAddressController,
-                decoration: InputDecoration(
-                  labelText: 'Điểm đến',
-                  hintText: 'VD: Chợ Bến Thành, Quận 1, TP.HCM',
-                  prefixIcon: const Icon(Icons.location_on, color: Colors.red),
-                  border: const OutlineInputBorder(),
-                  suffixIconConstraints: const BoxConstraints(
-                    minWidth: 44,
-                    minHeight: 44,
-                    maxWidth: 140,
-                  ),
-                  suffixIcon: SizedBox(
-                    width: _toAddressController.text.isNotEmpty ? 132 : 88,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        VoiceInputIconButton(
-                          controller: _toAddressController,
-                          tooltip: 'Nhập điểm đến bằng giọng nói',
-                          stopTooltip: 'Dừng nhập giọng nói',
-                          onTextChanged: _onToAddressInputChanged,
-                        ),
-                        TtsIconButton(
-                          controller: _toAddressController,
-                          tooltip: 'Đọc điểm đến',
-                          emptyMessage: 'Bạn chưa nhập điểm đến để đọc.',
-                        ),
-                        if (_toAddressController.text.isNotEmpty)
-                          IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              setState(() {
-                                _toAddressController.clear();
-                                _toPoint = null;
-                                _toAddressResults.clear();
-                              });
-                            },
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                onChanged: _onToAddressInputChanged,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Nhập địa chỉ để tìm kiếm (gợi ý tự động)',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-              if (_isSearchingAddress)
-                const Padding(
-                  padding: EdgeInsets.only(top: 12),
-                  child: Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                ),
-              if (_fromAddressResults.isNotEmpty)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Gợi ý điểm xuất phát:',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    ..._fromAddressResults.map((result) => ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.location_on,
-                              color: Colors.green, size: 20),
-                          title: Text(
-                            result.displayName,
-                            style: const TextStyle(fontSize: 12),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onTap: () => _selectAddress(result, true),
-                        )),
-                  ],
-                ),
-              if (_toAddressResults.isNotEmpty)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Gợi ý điểm đến:',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    ..._toAddressResults.map((result) => ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.location_on,
-                              color: Colors.red, size: 20),
-                          title: Text(
-                            result.displayName,
-                            style: const TextStyle(fontSize: 12),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onTap: () => _selectAddress(result, false),
-                        )),
-                  ],
-                ),
+              ],
             ],
           ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: scheme.outlineVariant.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Column(
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: const Color(0xFF0F766E),
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: 2,
+                      height: 28,
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      decoration: BoxDecoration(
+                        color: scheme.outlineVariant.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _buildAddressField(
+                        controller: _fromAddressController,
+                        hintText: 'VD: 268 Lý Thường Kiệt, Quận 10, TP.HCM',
+                        icon: Icons.my_location,
+                        accentColor: const Color(0xFF0F766E),
+                        onChanged: _onFromAddressInputChanged,
+                        onClear: () {
+                          setState(() {
+                            _fromAddressController.clear();
+                            _fromPoint = null;
+                            _fromAddressResults.clear();
+                          });
+                        },
+                        voiceTooltip: 'Nhập điểm xuất phát bằng giọng nói',
+                        ttsTooltip: 'Đọc điểm xuất phát',
+                        ttsEmptyMessage: 'Bạn chưa nhập điểm xuất phát để đọc.',
+                      ),
+                      const SizedBox(height: 10),
+                      _buildAddressField(
+                        controller: _toAddressController,
+                        hintText: 'VD: Chợ Bến Thành, Quận 1, TP.HCM',
+                        icon: Icons.location_on,
+                        accentColor: const Color(0xFFEF4444),
+                        onChanged: _onToAddressInputChanged,
+                        onClear: () {
+                          setState(() {
+                            _toAddressController.clear();
+                            _toPoint = null;
+                            _toAddressResults.clear();
+                          });
+                        },
+                        voiceTooltip: 'Nhập điểm đến bằng giọng nói',
+                        ttsTooltip: 'Đọc điểm đến',
+                        ttsEmptyMessage: 'Bạn chưa nhập điểm đến để đọc.',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Nhập địa chỉ để tìm kiếm (gợi ý tự động)',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+          if (_fromAddressResults.isNotEmpty)
+            _buildAddressSuggestionList(
+              title: 'Gợi ý điểm xuất phát',
+              results: _fromAddressResults,
+              accentColor: const Color(0xFF0F766E),
+              isFrom: true,
+            ),
+          if (_toAddressResults.isNotEmpty)
+            _buildAddressSuggestionList(
+              title: 'Gợi ý điểm đến',
+              results: _toAddressResults,
+              accentColor: const Color(0xFFEF4444),
+              isFrom: false,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAddressField({
+    required TextEditingController controller,
+    required String hintText,
+    required IconData icon,
+    required Color accentColor,
+    required ValueChanged<String> onChanged,
+    required VoidCallback onClear,
+    required String voiceTooltip,
+    required String ttsTooltip,
+    required String ttsEmptyMessage,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: accentColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: accentColor.withValues(alpha: 0.28),
         ),
       ),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: accentColor.withValues(alpha: 0.25),
+              ),
+            ),
+            child: Icon(icon, size: 16, color: accentColor),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.45),
+                ),
+              ),
+              child: TextField(
+                controller: controller,
+                decoration: InputDecoration.collapsed(
+                  hintText: hintText,
+                  hintStyle: TextStyle(color: scheme.onSurfaceVariant),
+                ),
+                style: const TextStyle(fontSize: 14),
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          IconButtonTheme(
+            data: IconButtonThemeData(
+              style: IconButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(30, 30),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                VoiceInputIconButton(
+                  controller: controller,
+                  tooltip: voiceTooltip,
+                  stopTooltip: 'Dừng nhập giọng nói',
+                  onTextChanged: onChanged,
+                ),
+                TtsIconButton(
+                  controller: controller,
+                  tooltip: ttsTooltip,
+                  emptyMessage: ttsEmptyMessage,
+                ),
+                if (controller.text.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: onClear,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAddressSuggestionList({
+    required String title,
+    required List<NominatimResult> results,
+    required Color accentColor,
+    required bool isFrom,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 12),
+        Text(
+          '$title:',
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.4),
+            ),
+          ),
+          child: ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: results.length,
+            separatorBuilder: (context, index) => Divider(
+              height: 1,
+              color: scheme.outlineVariant.withValues(alpha: 0.4),
+            ),
+            itemBuilder: (context, index) {
+              final result = results[index];
+              return InkWell(
+                onTap: () => _selectAddress(result, isFrom),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: accentColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          Icons.location_on,
+                          size: 16,
+                          color: accentColor,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          result.displayName,
+                          style: const TextStyle(fontSize: 12),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -3239,6 +3671,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                         _showFullRouteDetail = false;
                         _isSpeakingRouteGuide = false;
                       });
+                      _syncBottomNavVisibility();
                     },
                   ),
                   const SizedBox(width: 8),

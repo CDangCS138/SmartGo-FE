@@ -45,6 +45,17 @@ class _NearestRoadCandidate {
   });
 }
 
+class _SegmentAlignment {
+  final double lateralDistanceMeters;
+  final double projectionRatio;
+
+  const _SegmentAlignment({
+    required this.lateralDistanceMeters,
+    required this.projectionRatio,
+  });
+}
+
+
 /// Service to get actual route geometry from routing engines
 @lazySingleton
 class RouteGeometryService {
@@ -83,15 +94,25 @@ class RouteGeometryService {
       'https://router.project-osrm.org/nearest/v1/driving/';
   static const int _fastModeStationThreshold = 20;
   static const int _fastModeMaxWaypointsPerRequest = 18;
-  static const int _maxMatchCoordinatesPerRequest = 40;
-  static const int _directMatchThreshold = 24;
-  static const int _matchChunkSize = 20;
-  static const int _matchChunkOverlap = 3;
+  static const int _maxMatchCoordinatesPerRequest = 12;
+  static const int _directMatchThreshold = 10;
+  static const int _matchChunkSize = 10;
+  static const int _matchChunkOverlap = 2;
+  static const int _matchSecondaryChunkSize = 8;
+  static const int _matchSecondaryChunkOverlap = 1;
+  static const int _matchRouteFirstThreshold = 16;
+  static const int _hybridBaseMaxLocalMatchPatches = 3;
+  static const int _hybridAbsoluteMaxLocalMatchPatches = 5;
+  static const double _maxWaypointDeviationFromGeometryMeters = 180;
   static const double _minSnapDistanceMeters = 8;
   static const double _alleyDistanceThresholdMeters = 35;
   static const double _maxSnapDistanceMeters = 280;
+  static const double _directionOutlierMinSnapMeters = 14;
+  static const double _directionOutlierLateralMeters = 95;
+  static const double _directionOutlierStretchRatio = 1.7;
   static const double _walkingSpeedKmPerHour = 5;
   static const int _nearestRequestBatchSize = 4;
+  static const String _routeCacheSchemaVersion = 'v4_hybrid_route_match';
   static const Duration _nearestFailureBackoffDuration = Duration(minutes: 3);
   static const Duration _nearestFailureBurstWindow = Duration(seconds: 20);
   static const int _nearestFailureBurstThreshold = 3;
@@ -144,6 +165,7 @@ class RouteGeometryService {
     List<LatLng> stopCoordinates, {
     int maxWaypointsPerRequest = 25,
     int nearestCandidates = 3,
+    void Function(List<LatLng> refinedGeometry)? onGeometryRefined,
   }) async {
     if (stopCoordinates.isEmpty) {
       return const TransitGeometryResult(
@@ -175,14 +197,26 @@ class RouteGeometryService {
           .toList(growable: false);
 
       final dedupedWaypoints = _dedupeConsecutiveWaypoints(stopCoordinates);
-      final fastModeBatchSize =
-          maxWaypointsPerRequest < _fastModeMaxWaypointsPerRequest
-              ? maxWaypointsPerRequest
-              : _fastModeMaxWaypointsPerRequest;
+      final filteredWaypoints =
+          _filterDirectionalOutlierWaypoints(dedupedWaypoints);
+      final routeWaypoints = filteredWaypoints.length >= 2
+          ? filteredWaypoints
+          : dedupedWaypoints;
+
+      // Phase 1: get route immediately for display.
       final geometry = await _getRouteGeometryBatchedWithoutSnapping(
-        dedupedWaypoints,
-        maxWaypointsPerRequest: fastModeBatchSize,
+        routeWaypoints,
+        maxWaypointsPerRequest: _fastModeMaxWaypointsPerRequest,
       );
+
+      // Phase 2: schedule background match refinement for difficult segments.
+      if (onGeometryRefined != null && routeWaypoints.length >= 3) {
+        _scheduleGeometryRefinement(
+          geometry,
+          routeWaypoints,
+          onGeometryRefined,
+        );
+      }
 
       return TransitGeometryResult(
         stationAccessPoints: fallbackAccessPoints,
@@ -233,24 +267,41 @@ class RouteGeometryService {
       );
     }
 
-    final drivingWaypoints = accessPoints
+    final stabilizedAccessPoints =
+        _stabilizeDirectionOutlierAccessPoints(accessPoints);
+
+    final drivingWaypoints = stabilizedAccessPoints
         .map((accessPoint) => accessPoint.busAccessCoordinate)
         .toList(growable: false);
     final dedupedDrivingWaypoints =
         _dedupeConsecutiveWaypoints(drivingWaypoints);
+    final filteredRoutingWaypoints =
+        _filterDirectionalOutlierWaypoints(dedupedDrivingWaypoints);
+    final routingWaypoints = filteredRoutingWaypoints.length >= 2
+        ? filteredRoutingWaypoints
+        : dedupedDrivingWaypoints;
 
     var geometry = await getDrivingGeometryPreferMatch(
-      dedupedDrivingWaypoints,
+      routingWaypoints,
     );
-    if (_isSamePointSequence(geometry, dedupedDrivingWaypoints)) {
+    if (_isSamePointSequence(geometry, routingWaypoints)) {
       geometry = await _getRouteGeometryBatchedWithoutSnapping(
-        dedupedDrivingWaypoints,
+        routingWaypoints,
         maxWaypointsPerRequest: maxWaypointsPerRequest,
       );
     }
 
+    // Schedule background match refinement for normal mode too.
+    if (onGeometryRefined != null && routingWaypoints.length >= 3) {
+      _scheduleGeometryRefinement(
+        geometry,
+        routingWaypoints,
+        onGeometryRefined,
+      );
+    }
+
     return TransitGeometryResult(
-      stationAccessPoints: accessPoints,
+      stationAccessPoints: stabilizedAccessPoints,
       drivingWaypoints: drivingWaypoints,
       transitGeometry: geometry,
     );
@@ -524,8 +575,25 @@ class RouteGeometryService {
 
     final canUseSnappedRoad =
         bestCandidate.distanceMeters <= _maxSnapDistanceMeters;
+    final candidateAlignment = _segmentAlignmentMeters(
+      segmentStart: previousStop,
+      point: bestCandidate.point,
+      segmentEnd: nextStop,
+    );
+    final candidateStretchRatio = _pathStretchRatio(
+      previousStop,
+      bestCandidate.point,
+      nextStop,
+    );
+    final isDirectionOutlier = _isDirectionOutlierCandidate(
+      snapDistanceMeters: bestCandidate.distanceMeters,
+      alignment: candidateAlignment,
+      stretchRatio: candidateStretchRatio,
+    );
+
     final shouldMoveToAccessPoint = canUseSnappedRoad &&
-        bestCandidate.distanceMeters >= _minSnapDistanceMeters;
+        bestCandidate.distanceMeters >= _minSnapDistanceMeters &&
+        !isDirectionOutlier;
     final walkDistanceKm =
         shouldMoveToAccessPoint ? bestCandidate.distanceMeters / 1000.0 : 0.0;
 
@@ -556,7 +624,31 @@ class RouteGeometryService {
         candidate: candidate.point,
       );
 
-      final score = candidate.distanceMeters + (corridorPenalty * 0.45);
+      final alignment = _segmentAlignmentMeters(
+        segmentStart: previousStop,
+        point: candidate.point,
+        segmentEnd: nextStop,
+      );
+      final stretchRatio =
+          _pathStretchRatio(previousStop, candidate.point, nextStop);
+
+      var projectionPenalty = 0.0;
+      if (alignment.projectionRatio < -0.08) {
+        projectionPenalty = (alignment.projectionRatio.abs() + 0.08) * 220;
+      } else if (alignment.projectionRatio > 1.08) {
+        projectionPenalty = (alignment.projectionRatio - 1.08) * 220;
+      }
+
+      final stretchPenalty =
+          stretchRatio > 1.35 ? (stretchRatio - 1.35) * 210 : 0.0;
+
+      final lateralPenalty = alignment.lateralDistanceMeters * 0.7;
+
+      final score = candidate.distanceMeters +
+          (corridorPenalty * 0.5) +
+          lateralPenalty +
+          stretchPenalty +
+          projectionPenalty;
       if (score < bestScore) {
         bestScore = score;
         selected = candidate;
@@ -581,6 +673,138 @@ class RouteGeometryService {
     final extra = throughCandidate - direct;
 
     return extra > 0 ? extra : 0;
+  }
+
+  List<TransitStationAccessPoint> _stabilizeDirectionOutlierAccessPoints(
+    List<TransitStationAccessPoint> accessPoints,
+  ) {
+    if (accessPoints.length < 3) {
+      return accessPoints;
+    }
+
+    final stabilized = List<TransitStationAccessPoint>.from(accessPoints);
+
+    for (var index = 1; index < stabilized.length - 1; index++) {
+      final current = stabilized[index];
+      final snapDistanceMeters =
+          _distanceMeters(current.stopCoordinate, current.busAccessCoordinate);
+      if (snapDistanceMeters < _directionOutlierMinSnapMeters) {
+        continue;
+      }
+
+      final previousPoint = stabilized[index - 1].busAccessCoordinate;
+      final nextPoint = stabilized[index + 1].busAccessCoordinate;
+      final alignment = _segmentAlignmentMeters(
+        segmentStart: previousPoint,
+        point: current.busAccessCoordinate,
+        segmentEnd: nextPoint,
+      );
+      final stretchRatio = _pathStretchRatio(
+          previousPoint, current.busAccessCoordinate, nextPoint);
+
+      final isOutlier = _isDirectionOutlierCandidate(
+        snapDistanceMeters: snapDistanceMeters,
+        alignment: alignment,
+        stretchRatio: stretchRatio,
+      );
+
+      if (!isOutlier) {
+        continue;
+      }
+
+      stabilized[index] = TransitStationAccessPoint(
+        stopCoordinate: current.stopCoordinate,
+        busAccessCoordinate: current.stopCoordinate,
+        snappedRoadCoordinate: null,
+        isInAlley: false,
+        walkDistanceToAccessPointKm: 0,
+        walkTimeToAccessPointMinutes: 0,
+      );
+    }
+
+    return stabilized;
+  }
+
+  bool _isDirectionOutlierCandidate({
+    required double snapDistanceMeters,
+    required _SegmentAlignment alignment,
+    required double stretchRatio,
+  }) {
+    if (snapDistanceMeters < _directionOutlierMinSnapMeters) {
+      return false;
+    }
+
+    final hasLargeLateralDetour =
+        alignment.lateralDistanceMeters >= _directionOutlierLateralMeters &&
+            stretchRatio >= 1.42;
+    final hasStrongStretch = stretchRatio >= _directionOutlierStretchRatio;
+    final isOutOfOrder = (alignment.projectionRatio < -0.12 ||
+            alignment.projectionRatio > 1.12) &&
+        stretchRatio >= 1.35;
+
+    return hasLargeLateralDetour || hasStrongStretch || isOutOfOrder;
+  }
+
+  _SegmentAlignment _segmentAlignmentMeters({
+    required LatLng? segmentStart,
+    required LatLng point,
+    required LatLng? segmentEnd,
+  }) {
+    if (segmentStart == null || segmentEnd == null) {
+      return const _SegmentAlignment(
+        lateralDistanceMeters: 0,
+        projectionRatio: 0.5,
+      );
+    }
+
+    final a = _distanceMeters(segmentStart, point);
+    final b = _distanceMeters(point, segmentEnd);
+    final c = _distanceMeters(segmentStart, segmentEnd);
+    if (c <= 0.5) {
+      return _SegmentAlignment(
+        lateralDistanceMeters: a < b ? a : b,
+        projectionRatio: 0.5,
+      );
+    }
+
+    final along = ((a * a) - (b * b) + (c * c)) / (2 * c);
+    final clampedAlong = along.clamp(0.0, c);
+
+    double lateralSquared;
+    if (along < 0) {
+      lateralSquared = a * a;
+    } else if (along > c) {
+      lateralSquared = b * b;
+    } else {
+      lateralSquared = (a * a) - (clampedAlong * clampedAlong);
+    }
+    if (lateralSquared < 0) {
+      lateralSquared = 0;
+    }
+
+    return _SegmentAlignment(
+      lateralDistanceMeters: math.sqrt(lateralSquared),
+      projectionRatio: along / c,
+    );
+  }
+
+  double _pathStretchRatio(
+    LatLng? previous,
+    LatLng current,
+    LatLng? next,
+  ) {
+    if (previous == null || next == null) {
+      return 1;
+    }
+
+    final direct = _distanceMeters(previous, next);
+    if (direct <= 0.5) {
+      return 1;
+    }
+
+    final through =
+        _distanceMeters(previous, current) + _distanceMeters(current, next);
+    return through / direct;
   }
 
   double _distanceMeters(LatLng a, LatLng b) {
@@ -621,7 +845,7 @@ class RouteGeometryService {
               '${point.latitude.toStringAsFixed(6)},${point.longitude.toStringAsFixed(6)}',
         )
         .join(';');
-    return '$profile|$compact';
+    return '$_routeCacheSchemaVersion|$profile|$compact';
   }
 
   Future<List<LatLng>> _getRouteGeometryBatchedWithoutSnapping(
@@ -664,11 +888,22 @@ class RouteGeometryService {
   Future<List<LatLng>> _getRouteGeometryFromDrivingWaypoints(
     List<LatLng> waypoints,
   ) async {
+    return _getRouteGeometryFromDrivingWaypointsWithHints(
+      waypoints,
+      useStrictDrivingHints: false,
+    );
+  }
+
+  Future<List<LatLng>> _getRouteGeometryFromDrivingWaypointsWithHints(
+    List<LatLng> waypoints, {
+    required bool useStrictDrivingHints,
+  }) async {
     if (waypoints.length < 2) {
       return waypoints;
     }
 
-    final cacheKey = _buildRouteCacheKey(waypoints, profile: 'driving');
+    final cacheProfile = useStrictDrivingHints ? 'driving-strict' : 'driving';
+    final cacheKey = _buildRouteCacheKey(waypoints, profile: cacheProfile);
     final cached = _routeGeometryCache[cacheKey];
     if (cached != null &&
         cached.isNotEmpty &&
@@ -683,11 +918,17 @@ class RouteGeometryService {
 
     final requestFuture = () async {
       try {
-        AppLogger.info('Fetching route geometry from OSRM...');
+        AppLogger.info(useStrictDrivingHints
+            ? 'Fetching route geometry from OSRM (strict)...'
+            : 'Fetching route geometry from OSRM...');
 
         _recordOsrmRequest('route');
-        final response = await _dio
-            .getUri(_buildRouteUri(waypoints, useStrictDrivingHints: false));
+        final response = await _dio.getUri(
+          _buildRouteUri(
+            waypoints,
+            useStrictDrivingHints: useStrictDrivingHints,
+          ),
+        );
         final routePoints = _extractRoutePoints(response.data);
         if (routePoints != null &&
             !_isSamePointSequence(routePoints, waypoints)) {
@@ -733,16 +974,34 @@ class RouteGeometryService {
       return deduped;
     }
 
-    final now = DateTime.now();
-    if (_isMatchTemporarilyDisabled(now)) {
+    final directionalStable = _filterDirectionalOutlierWaypoints(deduped);
+    if (directionalStable.length < 2) {
       return deduped;
     }
 
-    final cacheKey = _buildRouteCacheKey(deduped, profile: 'driving-match');
+    if (directionalStable.length >= _matchRouteFirstThreshold) {
+      return _getRouteGeometryBatchedWithoutSnapping(
+        directionalStable,
+      );
+    }
+
+    final now = DateTime.now();
+    if (_isMatchTemporarilyDisabled(now)) {
+      if (directionalStable.length <= _maxMatchCoordinatesPerRequest) {
+        _matchTemporarilyDisabledUntil = null;
+      } else {
+        return _getRouteGeometryBatchedWithoutSnapping(
+          directionalStable,
+        );
+      }
+    }
+
+    final cacheKey =
+        _buildRouteCacheKey(directionalStable, profile: 'driving-match');
     final cached = _matchGeometryCache[cacheKey];
     if (cached != null &&
         cached.isNotEmpty &&
-        !_isSamePointSequence(cached, deduped)) {
+        !_isSamePointSequence(cached, directionalStable)) {
       return cached;
     }
 
@@ -756,17 +1015,15 @@ class RouteGeometryService {
       if (effectiveMaxCoordinates > _maxMatchCoordinatesPerRequest) {
         effectiveMaxCoordinates = _maxMatchCoordinatesPerRequest;
       }
-      if (effectiveMaxCoordinates > 32) {
-        effectiveMaxCoordinates = 32;
-      }
-      if (effectiveMaxCoordinates < 12) {
-        effectiveMaxCoordinates = 12;
+      if (effectiveMaxCoordinates < 8) {
+        effectiveMaxCoordinates = 8;
       }
 
-      final interpolationStepMeters =
-          deduped.length >= 18 ? 95.0 : (deduped.length >= 10 ? 78.0 : 62.0);
+      final interpolationStepMeters = directionalStable.length >= 18
+          ? 95.0
+          : (directionalStable.length >= 10 ? 78.0 : 62.0);
       final interpolated = _interpolateWaypointsForMatching(
-        deduped,
+        directionalStable,
         stepMeters: interpolationStepMeters,
       );
       final baseRequestPoints = interpolated.length <= effectiveMaxCoordinates
@@ -782,46 +1039,71 @@ class RouteGeometryService {
           overlap: _matchChunkOverlap,
           radiusScale: 0.44,
         );
+
+        if (matchedPoints == null || matchedPoints.length < 2) {
+          matchedPoints = await _tryMatchInChunks(
+            baseRequestPoints,
+            chunkSize: _matchSecondaryChunkSize,
+            overlap: _matchSecondaryChunkOverlap,
+            radiusScale: 0.36,
+          );
+        }
       }
 
       if ((matchedPoints == null || matchedPoints.length < 2) &&
           !_isMatchTemporarilyDisabled(DateTime.now())) {
         var requestPoints = baseRequestPoints.length > _directMatchThreshold
-            ? _compressWaypoints(baseRequestPoints, 24)
+            ? _compressWaypoints(baseRequestPoints, _directMatchThreshold)
             : baseRequestPoints;
-        var radiusScale = 0.56;
+        var radiusScale = 0.52;
 
-        for (var attempt = 0; attempt < 2; attempt++) {
-          if (_isMatchTemporarilyDisabled(DateTime.now())) {
-            break;
-          }
-
+        for (var attempt = 0; attempt < 3; attempt++) {
           matchedPoints = await _tryMatchCall(
             requestPoints,
             radiusScale: radiusScale,
-            logOnError: attempt == 1,
+            logOnError: attempt >= 1,
           );
           if (matchedPoints != null && matchedPoints.length >= 2) {
             break;
           }
 
-          if (attempt == 0 && requestPoints.length > 16) {
-            requestPoints = _compressWaypoints(requestPoints, 16);
-            radiusScale *= 0.75;
+          if (requestPoints.length > 6) {
+            final nextCap = requestPoints.length > 8 ? 8 : 6;
+            requestPoints = _compressWaypoints(requestPoints, nextCap);
           }
+          radiusScale *= 0.78;
         }
       }
 
       if (matchedPoints != null && matchedPoints.length >= 2) {
         final cleaned = _collapseShortDetourLoops(matchedPoints);
         final result = cleaned.length >= 2 ? cleaned : matchedPoints;
-        if (!_isSamePointSequence(result, deduped)) {
+
+        final followsAnchors = _geometryCoversWaypoints(
+          result,
+          directionalStable,
+          maxDeviationMeters: _maxWaypointDeviationFromGeometryMeters,
+        );
+        if (!followsAnchors) {
+          final routedFallback =
+              await _getRouteGeometryBatchedWithoutSnapping(
+            directionalStable,
+          );
+          if (!_isSamePointSequence(routedFallback, directionalStable)) {
+            _matchGeometryCache[cacheKey] = routedFallback;
+          }
+          return routedFallback;
+        }
+
+        if (!_isSamePointSequence(result, directionalStable)) {
           _matchGeometryCache[cacheKey] = result;
         }
         return result;
       }
 
-      return deduped;
+      return _getRouteGeometryBatchedWithoutSnapping(
+        directionalStable,
+      );
     }();
 
     _matchGeometryInFlight[cacheKey] = requestFuture;
@@ -830,6 +1112,453 @@ class RouteGeometryService {
     } finally {
       _matchGeometryInFlight.remove(cacheKey);
     }
+  }
+
+  List<LatLng> _filterDirectionalOutlierWaypoints(List<LatLng> waypoints) {
+    if (waypoints.length < 3) {
+      return waypoints;
+    }
+
+    final filtered = <LatLng>[waypoints.first];
+    for (var index = 1; index < waypoints.length - 1; index++) {
+      final previous = filtered.last;
+      final current = waypoints[index];
+      final next = waypoints[index + 1];
+
+      final prevCurrent = _distanceMeters(previous, current);
+      final currentNext = _distanceMeters(current, next);
+      final prevNext = _distanceMeters(previous, next);
+      if (prevCurrent <= 0.5 || currentNext <= 0.5 || prevNext <= 0.5) {
+        filtered.add(current);
+        continue;
+      }
+
+      final localWindow = prevCurrent <= 420 && currentNext <= 420;
+      if (!localWindow) {
+        filtered.add(current);
+        continue;
+      }
+
+      final alignment = _segmentAlignmentMeters(
+        segmentStart: previous,
+        point: current,
+        segmentEnd: next,
+      );
+      final stretchRatio = (prevCurrent + currentNext) / prevNext;
+
+      final hasLargeLateralDetour =
+          alignment.lateralDistanceMeters >= _directionOutlierLateralMeters &&
+              stretchRatio >= 1.5;
+      final hasStrongStretch = stretchRatio >= 1.85;
+      final isOutOfOrder = (alignment.projectionRatio < -0.15 ||
+              alignment.projectionRatio > 1.15) &&
+          stretchRatio >= 1.4;
+
+      if (hasLargeLateralDetour || hasStrongStretch || isOutOfOrder) {
+        continue;
+      }
+
+      filtered.add(current);
+    }
+
+    filtered.add(waypoints.last);
+    return _dedupeConsecutiveWaypoints(filtered);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 2: Background geometry refinement
+  // ---------------------------------------------------------------------------
+
+  /// Schedules background match-based refinement for the given route geometry.
+  /// Runs asynchronously after the route has already been returned to the UI.
+  void _scheduleGeometryRefinement(
+    List<LatLng> routeGeometry,
+    List<LatLng> waypoints,
+    void Function(List<LatLng> refinedGeometry) onRefined,
+  ) {
+    refineRouteGeometry(routeGeometry, waypoints).then((refined) {
+      if (refined != null && !_isSamePointSequence(refined, routeGeometry)) {
+        onRefined(refined);
+      }
+    }).catchError((_) {
+      // Silently ignore — the original route geometry is still valid.
+    });
+  }
+
+  /// Analyzes [routeGeometry] for segments that are likely on the wrong
+  /// parallel road, then uses OSRM match to correct them.
+  ///
+  /// Smart detection: looks for **consecutive runs** of waypoints that are
+  /// all offset from the route by 40m+ (parallel road signal), rather than
+  /// checking individual points.
+  ///
+  /// Returns the improved geometry, or `null` if no improvement was needed.
+  Future<List<LatLng>?> refineRouteGeometry(
+    List<LatLng> routeGeometry,
+    List<LatLng> waypoints,
+  ) async {
+    if (routeGeometry.length < 2 || waypoints.length < 3) {
+      return null;
+    }
+
+    final segments = _detectProblematicSegments(routeGeometry, waypoints);
+    if (segments.isEmpty) {
+      return null;
+    }
+
+    // Cap segments so we don't overwhelm OSRM.
+    final maxSegments = math.max(
+      _hybridBaseMaxLocalMatchPatches,
+      math.min(_hybridAbsoluteMaxLocalMatchPatches, waypoints.length ~/ 5),
+    );
+    final effectiveSegments = segments.length <= maxSegments
+        ? segments
+        : segments.sublist(0, maxSegments);
+
+    AppLogger.info(
+      'Detected ${effectiveSegments.length} problematic segment(s) for match refinement',
+    );
+
+    // Fire all match calls in parallel — each is a small, independent request.
+    final matchResults = await Future.wait(
+      effectiveSegments.map(
+        (segment) => _fetchLocalMatchGeometry(segment),
+      ),
+    );
+
+    // Apply validated patches sequentially (fast, local-only computation).
+    var patchedGeometry = routeGeometry;
+    var patchedCount = 0;
+
+    for (var i = 0; i < effectiveSegments.length; i++) {
+      final localMatch = matchResults[i];
+      if (localMatch == null || localMatch.length < 2) {
+        continue;
+      }
+
+      final segmentWaypoints = effectiveSegments[i];
+
+      final coversAnchors = _geometryCoversWaypoints(
+        localMatch,
+        segmentWaypoints,
+        maxDeviationMeters: _maxWaypointDeviationFromGeometryMeters,
+      );
+      if (!coversAnchors) {
+        continue;
+      }
+
+      final merged = _mergeGeometryPatch(
+        baseGeometry: patchedGeometry,
+        patchGeometry: localMatch,
+        fromAnchor: segmentWaypoints.first,
+        toAnchor: segmentWaypoints.last,
+      );
+      if (_isSamePointSequence(merged, patchedGeometry)) {
+        continue;
+      }
+
+      patchedGeometry = merged;
+      patchedCount += 1;
+    }
+
+    if (patchedCount <= 0) {
+      return null;
+    }
+
+    final coversAll = _geometryCoversWaypoints(
+      patchedGeometry,
+      waypoints,
+      maxDeviationMeters: _maxWaypointDeviationFromGeometryMeters,
+    );
+    if (!coversAll) {
+      return null;
+    }
+
+    AppLogger.info(
+      'Background refinement applied $patchedCount match patches',
+    );
+    return patchedGeometry;
+  }
+
+  /// Smart detection: finds groups of consecutive waypoints that are offset
+  /// from the route geometry, indicating the route went on the wrong road.
+  ///
+  /// Returns a list of waypoint sub-lists, each representing a segment that
+  /// should be re-matched.
+  ///
+  /// Detection rules:
+  /// - **Run detection**: 2+ consecutive waypoints with deviation >= 40m
+  ///   → strong parallel road signal (e.g. highway vs frontage road)
+  /// - **High individual deviation**: single waypoint with deviation >= 120m
+  ///   → clearly on the wrong road
+  /// - Each segment includes 1 anchor waypoint before and after for context.
+  List<List<LatLng>> _detectProblematicSegments(
+    List<LatLng> routeGeometry,
+    List<LatLng> waypoints,
+  ) {
+    if (waypoints.length < 3 || routeGeometry.length < 2) {
+      return const <List<LatLng>>[];
+    }
+
+    // Step 1: Compute deviation of each waypoint from the route.
+    final deviations = List<double>.generate(
+      waypoints.length,
+      (i) => _distancePointToPolylineMeters(waypoints[i], routeGeometry),
+    );
+
+    // Step 2: Find runs of consecutive deviating waypoints.
+    const minRunDeviation = 40.0; // Minimum deviation to be part of a run
+    const minSingleDeviation = 120.0; // Single-point threshold
+    const minRunLength = 2; // 2+ consecutive = parallel road signal
+
+    final segments = <List<LatLng>>[];
+    var runStart = -1;
+
+    for (var i = 0; i < waypoints.length; i++) {
+      final isDeviating = deviations[i] >= minRunDeviation;
+
+      if (isDeviating) {
+        if (runStart == -1) runStart = i;
+      }
+
+      if (!isDeviating || i == waypoints.length - 1) {
+        if (runStart >= 0) {
+          final runEnd = isDeviating ? i + 1 : i;
+          final runLength = runEnd - runStart;
+          final maxDevInRun = deviations
+              .sublist(runStart, runEnd)
+              .reduce(math.max);
+
+          final isSignificant = runLength >= minRunLength ||
+              maxDevInRun >= minSingleDeviation;
+
+          if (isSignificant) {
+            // Add 1 anchor waypoint before and after for match context.
+            final windowStart = math.max(0, runStart - 1);
+            final windowEnd = math.min(waypoints.length, runEnd + 1);
+            final segmentWaypoints =
+                waypoints.sublist(windowStart, windowEnd);
+            if (segmentWaypoints.length >= 2) {
+              segments.add(segmentWaypoints);
+            }
+          }
+          runStart = -1;
+        }
+      }
+    }
+
+    // Step 3: Merge overlapping segments.
+    if (segments.length <= 1) {
+      return segments;
+    }
+
+    final merged = <List<LatLng>>[segments.first];
+    for (var i = 1; i < segments.length; i++) {
+      final prev = merged.last;
+      final curr = segments[i];
+      // If last point of previous is close to first point of current, merge.
+      if (_distanceMeters(prev.last, curr.first) < 50) {
+        merged[merged.length - 1] = [
+          ...prev,
+          ...curr.skip(1),
+        ];
+      } else {
+        merged.add(curr);
+      }
+    }
+
+    return merged;
+  }
+
+  /// Fetches match geometry for a local waypoint window.
+  /// Tries match once — if it fails, accepts the route as-is.
+  /// Designed to be lightweight and safe to run in parallel.
+  Future<List<LatLng>?> _fetchLocalMatchGeometry(
+    List<LatLng> localWaypoints,
+  ) async {
+    // Single match attempt with reasonable radius.  _tryMatchCall already
+    // retries internally without bearings if the first try is too strict.
+    final localMatch = await _tryMatchCall(
+      localWaypoints,
+      radiusScale: 0.5,
+    );
+    if (localMatch != null && localMatch.length >= 2) {
+      return localMatch;
+    }
+
+    return null;
+  }
+
+
+  int _findNearestPolylineIndex(
+    List<LatLng> polyline,
+    LatLng anchor, {
+    int startIndex = 0,
+  }) {
+    if (polyline.isEmpty) {
+      return -1;
+    }
+
+    var safeStartIndex = startIndex;
+    if (safeStartIndex < 0) {
+      safeStartIndex = 0;
+    }
+    if (safeStartIndex >= polyline.length) {
+      return -1;
+    }
+
+    var bestIndex = -1;
+    var bestDistance = double.infinity;
+    for (var i = safeStartIndex; i < polyline.length; i++) {
+      final distance = _distanceMeters(polyline[i], anchor);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = i;
+      }
+    }
+
+    return bestIndex;
+  }
+
+  List<LatLng> _mergeGeometryPatch({
+    required List<LatLng> baseGeometry,
+    required List<LatLng> patchGeometry,
+    required LatLng fromAnchor,
+    required LatLng toAnchor,
+  }) {
+    if (baseGeometry.length < 2 || patchGeometry.length < 2) {
+      return baseGeometry;
+    }
+
+    final startIndex = _findNearestPolylineIndex(baseGeometry, fromAnchor);
+    if (startIndex == -1) {
+      return baseGeometry;
+    }
+
+    final endIndex = _findNearestPolylineIndex(
+      baseGeometry,
+      toAnchor,
+      startIndex: startIndex,
+    );
+    if (endIndex == -1 || endIndex <= startIndex) {
+      return baseGeometry;
+    }
+
+    final startDistance = _distanceMeters(baseGeometry[startIndex], fromAnchor);
+    final endDistance = _distanceMeters(baseGeometry[endIndex], toAnchor);
+    const maxAnchorSnapMeters = _maxWaypointDeviationFromGeometryMeters * 1.4;
+    if (startDistance > maxAnchorSnapMeters ||
+        endDistance > maxAnchorSnapMeters) {
+      return baseGeometry;
+    }
+
+    final merged = <LatLng>[];
+    merged.addAll(baseGeometry.sublist(0, startIndex + 1));
+
+    var patchStart = 0;
+    if (merged.isNotEmpty &&
+        _distanceMeters(merged.last, patchGeometry.first) <= 12) {
+      patchStart = 1;
+    }
+    merged.addAll(patchGeometry.skip(patchStart));
+
+    final tail = baseGeometry.sublist(endIndex + 1);
+    if (tail.isNotEmpty && merged.isNotEmpty) {
+      if (_distanceMeters(merged.last, tail.first) <= 12) {
+        merged.addAll(tail.skip(1));
+      } else {
+        merged.addAll(tail);
+      }
+    }
+
+    return _dedupeConsecutiveWaypoints(merged);
+  }
+
+  bool _geometryCoversWaypoints(
+    List<LatLng> geometry,
+    List<LatLng> waypoints, {
+    required double maxDeviationMeters,
+  }) {
+    if (geometry.length < 2 || waypoints.isEmpty) {
+      return true;
+    }
+
+    for (final waypoint in waypoints) {
+      final deviationMeters =
+          _distancePointToPolylineMeters(waypoint, geometry);
+      if (deviationMeters > maxDeviationMeters) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  double _distancePointToPolylineMeters(LatLng point, List<LatLng> polyline) {
+    if (polyline.isEmpty) {
+      return double.infinity;
+    }
+    if (polyline.length == 1) {
+      return _distanceMeters(point, polyline.first);
+    }
+
+    var minDistance = double.infinity;
+    for (var i = 0; i < polyline.length - 1; i++) {
+      final candidate = _distancePointToSegmentMeters(
+        point: point,
+        segmentStart: polyline[i],
+        segmentEnd: polyline[i + 1],
+      );
+      if (candidate < minDistance) {
+        minDistance = candidate;
+      }
+    }
+
+    return minDistance;
+  }
+
+  double _distancePointToSegmentMeters({
+    required LatLng point,
+    required LatLng segmentStart,
+    required LatLng segmentEnd,
+  }) {
+    const metersPerDegreeLat = 110540.0;
+    const metersPerDegreeLonAtEquator = 111320.0;
+
+    final averageLatitudeRadians =
+        ((segmentStart.latitude + segmentEnd.latitude + point.latitude) / 3) *
+            (math.pi / 180);
+    final lonScale =
+        metersPerDegreeLonAtEquator * math.cos(averageLatitudeRadians).abs();
+
+    const startX = 0.0;
+    const startY = 0.0;
+    final endX = (segmentEnd.longitude - segmentStart.longitude) * lonScale;
+    final endY =
+        (segmentEnd.latitude - segmentStart.latitude) * metersPerDegreeLat;
+    final pointX = (point.longitude - segmentStart.longitude) * lonScale;
+    final pointY =
+        (point.latitude - segmentStart.latitude) * metersPerDegreeLat;
+
+    final segmentLengthSquared = ((endX - startX) * (endX - startX)) +
+        ((endY - startY) * (endY - startY));
+    if (segmentLengthSquared == 0) {
+      final dx = pointX - startX;
+      final dy = pointY - startY;
+      return math.sqrt((dx * dx) + (dy * dy));
+    }
+
+    final projection = (((pointX - startX) * (endX - startX)) +
+            ((pointY - startY) * (endY - startY))) /
+        segmentLengthSquared;
+    final t = projection.clamp(0.0, 1.0);
+
+    final closestX = startX + ((endX - startX) * t);
+    final closestY = startY + ((endY - startY) * t);
+    final dx = pointX - closestX;
+    final dy = pointY - closestY;
+
+    return math.sqrt((dx * dx) + (dy * dy));
   }
 
   Future<List<LatLng>?> _tryMatchCall(
@@ -841,8 +1570,13 @@ class RouteGeometryService {
       return null;
     }
 
-    if (_isMatchTemporarilyDisabled(DateTime.now())) {
-      return null;
+    final now = DateTime.now();
+    if (_isMatchTemporarilyDisabled(now)) {
+      if (points.length <= _maxMatchCoordinatesPerRequest) {
+        _matchTemporarilyDisabledUntil = null;
+      } else {
+        return null;
+      }
     }
 
     if (_shouldSkipMatchRequest(points, radiusScale: radiusScale)) {
@@ -875,11 +1609,20 @@ class RouteGeometryService {
     } catch (e) {
       final isTooBig = _isTooBigMatchError(e);
       if (isTooBig) {
-        _matchTemporarilyDisabledUntil =
-            DateTime.now().add(_matchDisableDurationOnTooBig);
+        if (points.length <= 6) {
+          _matchTemporarilyDisabledUntil =
+              DateTime.now().add(_matchDisableDurationOnTooBig);
+        }
+
+        if (logOnError) {
+          AppLogger.warning(
+            'OSRM match TooBig for ${points.length} points. Retrying with smaller chunks.',
+          );
+        }
+        return null;
       }
 
-      if (logOnError || !isTooBig) {
+      if (logOnError) {
         _logRouteError('OSRM match failed: $e');
       }
       return null;
@@ -898,7 +1641,7 @@ class RouteGeometryService {
     List<LatLng> points, {
     required double radiusScale,
   }) {
-    if (points.length > 24) {
+    if (points.length > _maxMatchCoordinatesPerRequest) {
       return true;
     }
 
@@ -942,11 +1685,20 @@ class RouteGeometryService {
         radiusScale: radiusScale,
       );
 
-      if ((chunkMatch == null || chunkMatch.length < 2) && chunk.length > 14) {
-        final compressedChunk = _compressWaypoints(chunk, 16);
+      if ((chunkMatch == null || chunkMatch.length < 2) && chunk.length > 8) {
+        final compressedChunk = _compressWaypoints(chunk, 8);
         chunkMatch = await _tryMatchCall(
           compressedChunk,
           radiusScale: radiusScale * 0.72,
+          logOnError: true,
+        );
+      }
+
+      if ((chunkMatch == null || chunkMatch.length < 2) && chunk.length > 6) {
+        final miniChunk = _compressWaypoints(chunk, 6);
+        chunkMatch = await _tryMatchCall(
+          miniChunk,
+          radiusScale: radiusScale * 0.55,
           logOnError: true,
         );
       }

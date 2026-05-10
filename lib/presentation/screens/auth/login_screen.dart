@@ -316,13 +316,15 @@ uri_base: ${Uri.base}''',
             ),
             ElevatedButton(
               onPressed: () async {
+                final navigator = Navigator.of(context);
+                final messenger = ScaffoldMessenger.of(context);
                 await Clipboard.setData(ClipboardData(text: debugText));
                 if (!mounted) {
                   return;
                 }
 
-                Navigator.of(context).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
+                navigator.pop();
+                messenger.showSnackBar(
                   const SnackBar(
                     content: Text('Đã copy thông tin Google OAuth debug'),
                   ),
