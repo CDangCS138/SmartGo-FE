@@ -2624,13 +2624,12 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
       child: Row(
         children: [
-          if (fromLabel != null)
-            _buildPointChip(
-              label: fromLabel,
-              badge: 'A',
-              background: const Color(0xFFE7F6F4),
-              foreground: const Color(0xFF12756D),
-              badgeColor: const Color(0xFF0F766E),
+          DropdownButtonFormField<RoutingCriteria>(
+            value: _selectedCriteria,
+            decoration: const InputDecoration(
+              labelText: 'Tiêu chí tối ưu',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
           if (fromLabel != null && toLabel != null)
             Padding(

@@ -89,7 +89,7 @@ class _PathFindingWidgetState extends State<PathFindingWidget> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  initialValue: _criteria,
+                  value: _criteria,
                   dropdownColor: scheme.surface,
                   decoration: const InputDecoration(
                     labelText: 'Tiêu chí tối ưu',
