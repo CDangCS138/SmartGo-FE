@@ -14,6 +14,7 @@ import '../../blocs/station/station_bloc.dart';
 import '../../blocs/station/station_event.dart';
 import '../../blocs/station/station_state.dart';
 import '../../widgets/loading_indicator.dart';
+import '../../widgets/map/map_icons.dart';
 import '../../widgets/tts_icon_button.dart';
 import '../../widgets/voice_input_icon_button.dart';
 import '../station/station_detail_screen.dart';
@@ -381,7 +382,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
               ],
             ),
             child: Icon(
-              Icons.directions_bus,
+              MapIcons.bus,
               color: Colors.white,
               size: isSelected ? 20 : 14,
             ),
@@ -449,7 +450,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                 }),
               ),
             IconButton(
-              icon: const Icon(Icons.settings_outlined),
+              icon: const Icon(MapIcons.settings),
               onPressed: () => context.go(AppRoutes.settings),
             ),
           ],
@@ -559,7 +560,8 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                       controller: _searchController,
                       decoration: InputDecoration(
                         hintText: 'Tìm trạm...',
-                        prefixIcon: Icon(Icons.search, color: scheme.primary),
+                        prefixIcon:
+                            Icon(MapIcons.search, color: scheme.primary),
                         suffixIconConstraints: const BoxConstraints(
                           minWidth: 44,
                           minHeight: 44,
@@ -583,7 +585,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                               ),
                               if (_searchController.text.isNotEmpty)
                                 IconButton(
-                                  icon: const Icon(Icons.clear),
+                                  icon: const Icon(MapIcons.close),
                                   onPressed: () {
                                     _searchController.clear();
                                     setState(() => _searchResults = []);
@@ -618,7 +620,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                             final station = _searchResults[index];
                             return ListTile(
                               leading: Icon(
-                                Icons.location_on,
+                                MapIcons.location,
                                 color: scheme.primary,
                               ),
                               title: Text(station.stationName),
@@ -642,7 +644,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                 top: 92,
                 left: 16,
                 child: Chip(
-                  avatar: const Icon(Icons.near_me, size: 18),
+                  avatar: const Icon(MapIcons.nearby, size: 18),
                   label: Text(
                     'Bán kính ${_nearbyRadiusKm < 1 ? '${(_nearbyRadiusKm * 1000).toInt()}m' : '${_nearbyRadiusKm.toInt()}km'}: ${_nearbyStations.length} trạm',
                   ),
@@ -657,14 +659,14 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                     heroTag: 'zoom_in',
                     backgroundColor: scheme.surface,
                     onPressed: () => _zoomBy(1),
-                    child: Icon(Icons.add, color: scheme.primary),
+                    child: Icon(MapIcons.zoomIn, color: scheme.primary),
                   ),
                   const SizedBox(height: 8),
                   FloatingActionButton.small(
                     heroTag: 'zoom_out',
                     backgroundColor: scheme.surface,
                     onPressed: () => _zoomBy(-1),
-                    child: Icon(Icons.remove, color: scheme.primary),
+                    child: Icon(MapIcons.zoomOut, color: scheme.primary),
                   ),
                   const SizedBox(height: 8),
                   FloatingActionButton.small(
@@ -680,7 +682,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                               color: scheme.primary,
                             ),
                           )
-                        : Icon(Icons.my_location, color: scheme.primary),
+                        : Icon(MapIcons.myLocation, color: scheme.primary),
                   ),
                   const SizedBox(height: 8),
                   FloatingActionButton.small(
@@ -689,7 +691,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                         _showNearbyOnly ? scheme.primary : scheme.surface,
                     onPressed: _showNearbyDialog,
                     child: Icon(
-                      Icons.near_me,
+                      MapIcons.nearby,
                       color:
                           _showNearbyOnly ? scheme.onPrimary : scheme.primary,
                     ),

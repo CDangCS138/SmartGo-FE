@@ -695,101 +695,18 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
       return;
     }
 
-    final searchController = TextEditingController();
-
-    try {
-      await showModalBottomSheet<void>(
-        context: context,
-        useSafeArea: true,
-        isScrollControlled: true,
-        builder: (context) {
-          return StatefulBuilder(
-            builder: (context, setModalState) {
-              final query = searchController.text.trim().toLowerCase();
-              final filteredRoutes = query.isEmpty
-                  ? routes
-                  : routes.where((route) {
-                      return route.routeCode.toLowerCase().contains(query) ||
-                          route.routeName.toLowerCase().contains(query) ||
-                          route.startPoint.toLowerCase().contains(query) ||
-                          route.endPoint.toLowerCase().contains(query);
-                    }).toList();
-
-              return Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSizes.md,
-                      AppSizes.sm,
-                      AppSizes.md,
-                      AppSizes.sm,
-                    ),
-                    child: TextField(
-                      controller: searchController,
-                      onChanged: (_) => setModalState(() {}),
-                      textInputAction: TextInputAction.search,
-                      decoration: InputDecoration(
-                        hintText: 'Tìm tuyến theo mã/tên/điểm đầu-cuối',
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        suffixIcon: searchController.text.trim().isEmpty
-                            ? null
-                            : IconButton(
-                                icon: const Icon(Icons.close_rounded),
-                                tooltip: 'Xóa từ khóa',
-                                onPressed: () {
-                                  searchController.clear();
-                                  setModalState(() {});
-                                },
-                              ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: filteredRoutes.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'Không tìm thấy tuyến phù hợp',
-                              textAlign: TextAlign.center,
-                            ),
-                          )
-                        : ListView.separated(
-                            itemCount: filteredRoutes.length,
-                            separatorBuilder: (context, index) =>
-                                const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final route = filteredRoutes[index];
-                              final selected = route.id == _selectedRouteId;
-                              return ListTile(
-                                leading: Icon(
-                                  Icons.directions_bus_filled_rounded,
-                                  color: selected
-                                      ? Theme.of(context).colorScheme.primary
-                                      : null,
-                                ),
-                                title: Text('Tuyến ${route.routeCode}'),
-                                subtitle: Text(
-                                  '${route.startPoint} -> ${route.endPoint}',
-                                ),
-                                trailing: selected
-                                    ? const Icon(Icons.check_rounded)
-                                    : null,
-                                onTap: () {
-                                  Navigator.of(context).pop();
-                                  _onRouteSelected(route);
-                                },
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      );
-    } finally {
-      searchController.dispose();
-    }
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return _RoutePickerSheet(
+          routes: routes,
+          selectedRouteId: _selectedRouteId,
+          onRouteSelected: _onRouteSelected,
+        );
+      },
+    );
   }
 
   Future<void> _openTripDetail(
@@ -1835,6 +1752,112 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
             color: Theme.of(context).colorScheme.onSurfaceVariant,
             fontSize: 12,
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RoutePickerSheet extends StatefulWidget {
+  final List<BusRoute> routes;
+  final String? selectedRouteId;
+  final ValueChanged<BusRoute> onRouteSelected;
+
+  const _RoutePickerSheet({
+    required this.routes,
+    required this.selectedRouteId,
+    required this.onRouteSelected,
+  });
+
+  @override
+  State<_RoutePickerSheet> createState() => _RoutePickerSheetState();
+}
+
+class _RoutePickerSheetState extends State<_RoutePickerSheet> {
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _searchController.text.trim().toLowerCase();
+    final filteredRoutes = query.isEmpty
+        ? widget.routes
+        : widget.routes.where((route) {
+            return route.routeCode.toLowerCase().contains(query) ||
+                route.routeName.toLowerCase().contains(query) ||
+                route.startPoint.toLowerCase().contains(query) ||
+                route.endPoint.toLowerCase().contains(query);
+          }).toList();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSizes.md,
+            AppSizes.sm,
+            AppSizes.md,
+            AppSizes.sm,
+          ),
+          child: TextField(
+            controller: _searchController,
+            onChanged: (_) => setState(() {}),
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Tìm tuyến theo mã/tên/điểm đầu-cuối',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: _searchController.text.trim().isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      tooltip: 'Xóa từ khóa',
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {});
+                      },
+                    ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: filteredRoutes.isEmpty
+              ? const Center(
+                  child: Text(
+                    'Không tìm thấy tuyến phù hợp',
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              : ListView.separated(
+                  itemCount: filteredRoutes.length,
+                  separatorBuilder: (context, index) =>
+                      const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final route = filteredRoutes[index];
+                    final selected = route.id == widget.selectedRouteId;
+                    return ListTile(
+                      leading: Icon(
+                        Icons.directions_bus_filled_rounded,
+                        color: selected
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
+                      ),
+                      title: Text('Tuyến ${route.routeCode}'),
+                      subtitle: Text(
+                        '${route.startPoint} -> ${route.endPoint}',
+                      ),
+                      trailing:
+                          selected ? const Icon(Icons.check_rounded) : null,
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        widget.onRouteSelected(route);
+                      },
+                    );
+                  },
+                ),
         ),
       ],
     );

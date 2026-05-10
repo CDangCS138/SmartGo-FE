@@ -21,6 +21,7 @@ import '../../presentation/screens/chatbot/chatbot_screen.dart';
 import '../../presentation/screens/chatbot/chatbot_admin_screen.dart';
 import '../../presentation/blocs/auth/auth_bloc.dart';
 import '../../presentation/blocs/auth/auth_state.dart';
+import '../../presentation/screens/home/widgets/home_navigation_bar.dart';
 import 'app_routes.dart';
 
 class AppRouter {
@@ -49,15 +50,97 @@ class AppRouter {
         name: 'register',
         builder: (context, state) => const RegisterScreen(),
       ),
-      GoRoute(
-        path: AppRoutes.home,
-        name: 'home',
-        builder: (context, state) => const HomeScreen(),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          return Scaffold(
+            body: navigationShell,
+            extendBody:
+                true, // Cho phép body (bản đồ) tràn xuống dưới nền của Navbar trong suốt
+            bottomNavigationBar: ValueListenableBuilder<bool>(
+              valueListenable: HomeNavigationBar.isVisible,
+              child: HomeNavigationBar(
+                currentIndex: navigationShell.currentIndex,
+                onDestinationSelected: (index) {
+                  navigationShell.goBranch(
+                    index,
+                    initialLocation: index == navigationShell.currentIndex,
+                  );
+                },
+              ),
+              builder: (context, isVisible, child) {
+                return AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: isVisible ? child! : const SizedBox.shrink(),
+                );
+              },
+            ),
+          );
+        },
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.home,
+                name: 'home',
+                builder: (context, state) => const HomeScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.pathFindingDemo,
+                name: 'path-finding-demo',
+                builder: (context, state) => const PathFindingDemoScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.liveMap,
+                name: 'live-map',
+                builder: (context, state) => const LiveMapScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.settings,
+                name: 'settings',
+                builder: (context, state) => const SettingsScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'theme',
+                    name: 'theme-settings',
+                    builder: (context, state) => const ThemeSettingsScreen(),
+                  ),
+                  GoRoute(
+                    path: 'language',
+                    name: 'language-settings',
+                    builder: (context, state) => const LanguageSettingsScreen(),
+                  ),
+                  GoRoute(
+                    path: 'users',
+                    name: 'users-admin',
+                    builder: (context, state) => const UsersAdminScreen(),
+                  ),
+                  GoRoute(
+                    path: 'chatbot-admin',
+                    name: 'chatbot-admin',
+                    builder: (context, state) => const ChatbotAdminScreen(),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
       ),
       GoRoute(
-        path: AppRoutes.liveMap,
-        name: 'live-map',
-        builder: (context, state) => const LiveMapScreen(),
+        path: AppRoutes.profile,
+        name: 'profile',
+        builder: (context, state) => const ProfileScreen(),
       ),
       GoRoute(
         path: AppRoutes.routes,
@@ -68,11 +151,6 @@ class AppRouter {
         path: AppRoutes.routePlanning,
         name: 'route-planning',
         builder: (context, state) => const RoutePlanningScreen(),
-      ),
-      GoRoute(
-        path: AppRoutes.pathFindingDemo,
-        name: 'path-finding-demo',
-        builder: (context, state) => const PathFindingDemoScreen(),
       ),
       GoRoute(
         path: AppRoutes.busSimulations,
@@ -87,11 +165,6 @@ class AppRouter {
         path: AppRoutes.map,
         name: 'map',
         builder: (context, state) => const MapScreen(),
-      ),
-      GoRoute(
-        path: AppRoutes.profile,
-        name: 'profile',
-        builder: (context, state) => const ProfileScreen(),
       ),
       GoRoute(
         path: AppRoutes.chatbot,
@@ -129,33 +202,6 @@ class AppRouter {
           provider: 'vnpay',
           callbackParams: state.uri.queryParameters,
         ),
-      ),
-      GoRoute(
-        path: AppRoutes.settings,
-        name: 'settings',
-        builder: (context, state) => const SettingsScreen(),
-        routes: [
-          GoRoute(
-            path: 'theme',
-            name: 'theme-settings',
-            builder: (context, state) => const ThemeSettingsScreen(),
-          ),
-          GoRoute(
-            path: 'language',
-            name: 'language-settings',
-            builder: (context, state) => const LanguageSettingsScreen(),
-          ),
-          GoRoute(
-            path: 'users',
-            name: 'users-admin',
-            builder: (context, state) => const UsersAdminScreen(),
-          ),
-          GoRoute(
-            path: 'chatbot-admin',
-            name: 'chatbot-admin',
-            builder: (context, state) => const ChatbotAdminScreen(),
-          ),
-        ],
       ),
     ],
     errorBuilder: (context, state) => Scaffold(

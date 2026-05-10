@@ -10,8 +10,10 @@ import 'dart:async';
 import '../../../core/platform/geolocation.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/services/route_geometry_service.dart';
+import '../../widgets/map/map_icons.dart';
 import '../../widgets/tts_icon_button.dart';
 import '../../widgets/voice_input_icon_button.dart';
+import '../../widgets/map_station_marker.dart';
 
 /// Map Screen - Redesigned
 class MapScreen extends StatefulWidget {
@@ -292,30 +294,12 @@ class _MapScreenState extends State<MapScreen> {
           final stop = entry.value;
           return Marker(
             point: LatLng(stop['lat'] as double, stop['lon'] as double),
-            width: 50,
-            height: 50,
-            child: GestureDetector(
+            width: 32,
+            height: 32,
+            child: MapStationMarker(
+              type: MarkerType.selected,
+              label: '${index + 1}',
               onTap: () => _showStopDetails(stop),
-              child: Stack(
-                children: [
-                  const Icon(Icons.directions_bus,
-                      color: Colors.green, size: 40),
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                          color: Colors.red, shape: BoxShape.circle),
-                      child: Text('${index + 1}',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ],
-              ),
             ),
           );
         }).toList();
@@ -420,12 +404,11 @@ out body;
       _markers = [
         Marker(
           point: position,
-          width: 50,
-          height: 50,
-          child: GestureDetector(
+          width: 36,
+          height: 36,
+          child: MapStationMarker(
+            type: MarkerType.end,
             onTap: () => _showStopDetails(stop),
-            child:
-                const Icon(Icons.directions_bus, color: Colors.red, size: 40),
           ),
         ),
       ];
@@ -439,61 +422,182 @@ out body;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(12),
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  child: Icon(Icons.directions_bus,
-                      color: Colors.blue.shade700, size: 28),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(stop['name'] as String,
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold)),
-                      if ((stop['ref'] as String).isNotEmpty)
-                        Text('Mã: ${stop['ref']}',
-                            style: TextStyle(
-                                fontSize: 14, color: Colors.grey.shade600)),
-                    ],
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDFA),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(MapIcons.bus,
+                        color: Color(0xFF0D9488), size: 24),
                   ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          stop['name'] as String,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(MapIcons.location,
+                                size: 14, color: Color(0xFF64748B)),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                (stop['ref'] as String).isNotEmpty
+                                    ? stop['ref'] as String
+                                    : 'Không có địa chỉ chi tiết',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(MapIcons.close, color: Color(0xFF94A3B8)),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              if ((stop['routes'] as String).isNotEmpty) ...[
+                const SizedBox(height: 20),
+                const Text(
+                  'TUYẾN ĐI QUA',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: (stop['routes'] as String).split(',').map((r) {
+                    final route = r.trim();
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FDFA),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0D9488),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Center(
+                              child: Text(
+                                route,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Tuyến $route',
+                            style: const TextStyle(
+                              color: Color(0xFF115E59),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
                 ),
               ],
-            ),
-            if ((stop['routes'] as String).isNotEmpty) ...[
-              const SizedBox(height: 20),
-              const Text('Tuyến xe:',
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey)),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(8)),
-                child: Text(stop['routes'] as String,
-                    style: const TextStyle(fontSize: 15)),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        context.go(AppRoutes.pathFindingDemo);
+                      },
+                      icon: const Icon(MapIcons.nearby, size: 18),
+                      label: const Text('Tìm đường đến đây'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0D9488),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.chevron_right,
+                          color: Color(0xFF475569)),
+                      onPressed: () {},
+                    ),
+                  ),
+                ],
               ),
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -524,12 +628,11 @@ out body;
       _markers = nearbyStops.map((stop) {
         return Marker(
           point: LatLng(stop['lat'] as double, stop['lon'] as double),
-          width: 40,
-          height: 40,
-          child: GestureDetector(
+          width: 28,
+          height: 28,
+          child: MapStationMarker(
+            type: MarkerType.normal,
             onTap: () => _showStopDetails(stop),
-            child:
-                const Icon(Icons.directions_bus, color: Colors.blue, size: 32),
           ),
         );
       }).toList();
@@ -616,7 +719,7 @@ out body;
                         label: const Text('Từ API'),
                       ),
                       IconButton(
-                          icon: const Icon(Icons.close),
+                          icon: const Icon(MapIcons.close),
                           onPressed: () => Navigator.pop(context)),
                     ],
                   ),
@@ -686,7 +789,7 @@ out body;
                               _drawRoute();
                             }
                           : null,
-                      icon: const Icon(Icons.route),
+                      icon: const Icon(MapIcons.route),
                       label: const Text('Vẽ tuyến'),
                       style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 14)),
@@ -745,7 +848,7 @@ out body;
                   controller: searchController,
                   decoration: InputDecoration(
                     hintText: 'Tìm kiếm...',
-                    prefixIcon: const Icon(Icons.search),
+                    prefixIcon: const Icon(MapIcons.search),
                     suffixIconConstraints: const BoxConstraints(
                       minWidth: 44,
                       minHeight: 44,
@@ -787,7 +890,7 @@ out body;
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
-                          leading: Icon(Icons.directions_bus,
+                          leading: Icon(MapIcons.bus,
                               color: isSelected ? Colors.green : Colors.blue),
                           title: Text(stop['name'] as String),
                           subtitle: Text(stop['ref'] as String),
@@ -865,7 +968,7 @@ out body;
                     controller: searchController,
                     decoration: InputDecoration(
                       hintText: 'Tìm tuyến theo mã, tên hoặc điểm đầu-cuối',
-                      prefixIcon: const Icon(Icons.search),
+                      prefixIcon: const Icon(MapIcons.search),
                       suffixIconConstraints: const BoxConstraints(
                         minWidth: 44,
                         minHeight: 44,
@@ -890,7 +993,7 @@ out body;
                             ),
                             if (searchController.text.trim().isNotEmpty)
                               IconButton(
-                                icon: const Icon(Icons.close_rounded),
+                                icon: const Icon(MapIcons.close),
                                 tooltip: 'Xóa từ khóa',
                                 onPressed: () {
                                   searchController.clear();
@@ -1028,30 +1131,12 @@ out body;
           final stop = entry.value;
           return Marker(
             point: LatLng(stop['lat'] as double, stop['lon'] as double),
-            width: 50,
-            height: 50,
-            child: GestureDetector(
+            width: 32,
+            height: 32,
+            child: MapStationMarker(
+              type: MarkerType.selected,
+              label: '${index + 1}',
               onTap: () => _showStopDetails(stop),
-              child: Stack(
-                children: [
-                  const Icon(Icons.directions_bus,
-                      color: Colors.green, size: 40),
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                          color: Colors.red, shape: BoxShape.circle),
-                      child: Text('${index + 1}',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ],
-              ),
             ),
           );
         }).toList();
@@ -1074,24 +1159,6 @@ out body;
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('SmartGo'),
-        actions: [
-          if (_markers.isNotEmpty || _routePoints.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.clear_all),
-              onPressed: () => setState(() {
-                _markers = [];
-                _routePoints = [];
-                _selectedRouteStops.clear();
-              }),
-            ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => context.go(AppRoutes.settings),
-          ),
-        ],
-      ),
       body: Stack(
         children: [
           FlutterMap(
@@ -1151,49 +1218,25 @@ out body;
                     decoration: BoxDecoration(
                         color: scheme.surface,
                         borderRadius: BorderRadius.circular(12)),
-                    child: TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        hintText: 'Tìm trạm...',
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIconConstraints: const BoxConstraints(
-                          minWidth: 44,
-                          minHeight: 44,
-                          maxWidth: 140,
-                        ),
-                        suffixIcon: SizedBox(
-                          width: _searchController.text.isNotEmpty ? 132 : 88,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              VoiceInputIconButton(
-                                controller: _searchController,
-                                tooltip: 'Nhập từ khóa tìm trạm bằng giọng nói',
-                                stopTooltip: 'Dừng nhập giọng nói',
-                                onTextChanged: (_) {
-                                  setState(() {});
-                                  _onSearchChanged();
-                                },
+                    child: InkWell(
+                      onTap: () => context.push(AppRoutes.routePlanning),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 14),
+                        child: Row(
+                          children: [
+                            Icon(MapIcons.search,
+                                color: scheme.onSurfaceVariant),
+                            const SizedBox(width: 12),
+                            Text(
+                              'Tìm tuyến, trạm, lập kế hoạch...',
+                              style: TextStyle(
+                                color: scheme.onSurfaceVariant,
+                                fontSize: 16,
                               ),
-                              TtsIconButton(
-                                controller: _searchController,
-                                tooltip: 'Đọc từ khóa tìm trạm',
-                                emptyMessage: 'Bạn chưa nhập tên trạm để đọc.',
-                              ),
-                              if (_searchController.text.isNotEmpty)
-                                IconButton(
-                                  icon: const Icon(Icons.clear),
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    setState(() => _searchResults = []);
-                                  },
-                                ),
-                            ],
-                          ),
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -1215,7 +1258,7 @@ out body;
                           final stop = _searchResults[index];
                           return ListTile(
                             leading: Icon(
-                              Icons.directions_bus,
+                              MapIcons.bus,
                               color: scheme.primary,
                             ),
                             title: Text(stop['name'] as String),
@@ -1239,7 +1282,7 @@ out body;
                   child: OutlinedButton.icon(
                     onPressed:
                         _isLoadingLocation ? null : _focusOnCurrentLocation,
-                    icon: const Icon(Icons.my_location),
+                    icon: const Icon(MapIcons.myLocation),
                     label: const Text('Vị trí tôi'),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -1250,7 +1293,7 @@ out body;
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: _isLoading ? null : _showNearbyDialog,
-                    icon: const Icon(Icons.near_me),
+                    icon: const Icon(MapIcons.nearby),
                     label: const Text('Gần tôi'),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -1262,8 +1305,10 @@ out body;
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: _isLoading ? null : _showRouteBuilder,
-                    icon: const Icon(Icons.route),
+                    onPressed: _isLoading
+                        ? null
+                        : () => context.go(AppRoutes.pathFindingDemo),
+                    icon: const Icon(MapIcons.route),
                     label: const Text('Tìm đường'),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),

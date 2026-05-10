@@ -137,63 +137,134 @@ class _RouteListScreenState extends State<RouteListScreen> {
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tuyến Xe Buýt'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go(AppRoutes.home),
+      backgroundColor: const Color(0xFFF6F8FB),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(0),
+        child: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
         ),
-        actions: [
-          PopupMenuButton<RouteDirection>(
-            icon: const Icon(Icons.filter_list),
-            onSelected: _onDirectionChanged,
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: RouteDirection.both,
-                child: Text('Cả hai chiều'),
-              ),
-              PopupMenuItem(
-                value: RouteDirection.forward,
-                child: Text('Chiều đi'),
-              ),
-              PopupMenuItem(
-                value: RouteDirection.backward,
-                child: Text('Chiều về'),
-              ),
-            ],
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _refreshRoutes,
-          ),
-        ],
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-            child: TextField(
-              controller: _routeSearchController,
-              onChanged: _onRouteSearchChanged,
-              onSubmitted: (_) => _triggerRouteSearch(),
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: 'Tìm theo mã tuyến (VD: 01, 150)',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _routeSearchController.text.trim().isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.close_rounded),
-                        tooltip: 'Xóa từ khóa',
-                        onPressed: () {
-                          _routeSearchController.clear();
-                          _triggerRouteSearch();
-                        },
-                      ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+          // Header
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x0F0F172A),
+                  blurRadius: 0,
+                  offset: Offset(0, 1),
                 ),
-              ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () => context.go(AppRoutes.home),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(16),
+                              border:
+                                  Border.all(color: const Color(0xFFF1F5F9)),
+                            ),
+                            child: const Icon(Icons.arrow_back,
+                                size: 16, color: Color(0xFF334155)),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Tuyến Xe Buýt',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 18,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                      ],
+                    ),
+                    PopupMenuButton<RouteDirection>(
+                      icon: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFF1F5F9)),
+                        ),
+                        child: const Icon(Icons.tune_rounded,
+                            size: 16, color: Color(0xFF64748B)),
+                      ),
+                      onSelected: _onDirectionChanged,
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: RouteDirection.both,
+                          child: Text('Cả hai chiều'),
+                        ),
+                        PopupMenuItem(
+                          value: RouteDirection.forward,
+                          child: Text('Chiều đi'),
+                        ),
+                        PopupMenuItem(
+                          value: RouteDirection.backward,
+                          child: Text('Chiều về'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // Search
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.search_rounded,
+                          size: 18, color: Color(0xFF0D9488)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _routeSearchController,
+                          onChanged: _onRouteSearchChanged,
+                          onSubmitted: (_) => _triggerRouteSearch(),
+                          style: const TextStyle(
+                              fontSize: 14, color: Color(0xFF1E293B)),
+                          decoration: const InputDecoration(
+                            hintText: 'Tìm theo mã tuyến (VD: 08, 150)…',
+                            hintStyle: TextStyle(color: Color(0xFF94A3B8)),
+                            border: InputBorder.none,
+                          ),
+                        ),
+                      ),
+                      if (_routeSearchController.text.isNotEmpty)
+                        GestureDetector(
+                          onTap: () {
+                            _routeSearchController.clear();
+                            _triggerRouteSearch();
+                          },
+                          child: const Icon(Icons.close_rounded,
+                              size: 16, color: Color(0xFF94A3B8)),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -237,13 +308,17 @@ class _RouteListScreenState extends State<RouteListScreen> {
                       state is RouteLoaded ? state.totalCount : routes.length;
 
                   if (routes.isEmpty) {
-                    return Center(
-                      child: Text(
-                        _routeSearchQuery.isEmpty
-                            ? 'Không có tuyến xe buýt nào'
-                            : 'Không tìm thấy tuyến phù hợp với "$_routeSearchQuery"',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                        textAlign: TextAlign.center,
+                    return const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.directions_bus_rounded,
+                              size: 48, color: Color(0xFFCBD5E1)),
+                          SizedBox(height: 12),
+                          Text('Không tìm thấy tuyến xe buýt',
+                              style: TextStyle(
+                                  color: Color(0xFF64748B), fontSize: 14)),
+                        ],
                       ),
                     );
                   }
@@ -251,30 +326,43 @@ class _RouteListScreenState extends State<RouteListScreen> {
                   return Column(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(8),
-                        color: scheme.surfaceContainerHighest,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 10),
                         child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Icon(
-                              Icons.directions_bus,
-                              size: 20,
-                              color: scheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Hiển thị ${routes.length}/$totalCount tuyến',
-                              style: TextStyle(
-                                color: scheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w600,
+                            RichText(
+                              text: TextSpan(
+                                style: const TextStyle(
+                                    color: Color(0xFF64748B), fontSize: 12),
+                                children: [
+                                  const TextSpan(text: 'Hiển thị '),
+                                  TextSpan(
+                                    text: '${routes.length}',
+                                    style: const TextStyle(
+                                        color: Color(0xFF0F766E),
+                                        fontWeight: FontWeight.w600),
+                                  ),
+                                  TextSpan(text: '/$totalCount tuyến'),
+                                ],
                               ),
                             ),
-                            const Spacer(),
-                            Text(
-                              _getDirectionText(),
-                              style: TextStyle(
-                                color: scheme.onSurfaceVariant,
-                                fontSize: 12,
-                              ),
+                            Row(
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  decoration: const BoxDecoration(
+                                      color: Color(0xFF10B981),
+                                      shape: BoxShape.circle),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _getDirectionText(),
+                                  style: const TextStyle(
+                                      color: Color(0xFF0D9488), fontSize: 12),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -299,7 +387,10 @@ class _RouteListScreenState extends State<RouteListScreen> {
                             }
 
                             final route = routes[index];
-                            return _buildRouteCard(route);
+                            return Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                              child: _buildRouteCard(route),
+                            );
                           },
                         ),
                       ),
@@ -327,169 +418,222 @@ class _RouteListScreenState extends State<RouteListScreen> {
     }
   }
 
+  Color _getRouteColor(String code) {
+    final colors = [
+      const Color(0xFF0F9B8E), // teal
+      const Color(0xFF2563EB), // blue
+      const Color(0xFFF59E0B), // amber
+      const Color(0xFF8B5CF6), // purple
+      const Color(0xFFEC4899), // pink
+    ];
+    final hash = code.hashCode;
+    return colors[hash % colors.length];
+  }
+
   Widget _buildRouteCard(BusRoute route) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: InkWell(
-        onTap: () => _onRouteSelected(route),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Route code and status
-              Row(
+    final routeColor = _getRouteColor(route.routeCode);
+
+    return GestureDetector(
+      onTap: () => _onRouteSelected(route),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFFF1F5F9)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0F0F172A),
+              blurRadius: 16,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(height: 4, width: double.infinity, color: routeColor),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: scheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      route.routeCode,
-                      style: TextStyle(
-                        color: scheme.onPrimaryContainer,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
+                  Row(
+                    children: [
+                      Container(
+                        height: 40,
+                        constraints: const BoxConstraints(minWidth: 40),
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: routeColor,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          route.routeCode,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
+                      const SizedBox(width: 10),
+                      _buildStatusBadge(route.status),
+                      const Spacer(),
+                      const Icon(Icons.chevron_right_rounded,
+                          color: Color(0xFFCBD5E1), size: 20),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    route.routeName,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF0F172A),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  _buildStatusBadge(route.status),
-                  const Spacer(),
-                  if (route.isWheelchairAccessible)
-                    Icon(Icons.accessible, color: scheme.primary, size: 20),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        margin: const EdgeInsets.only(top: 2),
+                        width: 16,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(
+                              color: const Color(0xFF14B8A6), width: 2),
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                              color: Color(0xFF14B8A6), shape: BoxShape.circle),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(route.startPoint,
+                            style: const TextStyle(
+                                color: Color(0xFF64748B), fontSize: 13)),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    margin: const EdgeInsets.only(left: 7.5, top: 4, bottom: 4),
+                    width: 1,
+                    height: 12,
+                    color: const Color(0xFFE2E8F0),
+                  ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.place_rounded,
+                          size: 16, color: Color(0xFFFB7185)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(route.endPoint,
+                            style: const TextStyle(
+                                color: Color(0xFF64748B), fontSize: 13)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(height: 1, color: Color(0xFFF8FAFC)),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
+                    children: [
+                      _buildInfoChip(Icons.schedule_rounded,
+                          '${route.operatingTime.from} - ${route.operatingTime.to}'),
+                      _buildInfoChip(Icons.timer_outlined, route.tripTime),
+                      _buildInfoChip(Icons.straighten_rounded,
+                          '${route.totalDistance} km'),
+                      _buildInfoChip(Icons.repeat_rounded, route.frequency),
+                    ],
+                  ),
                 ],
               ),
-              const SizedBox(height: 8),
-              // Route name
-              Text(
-                route.routeName,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 4),
-              // Start and end points
-              Row(
-                children: [
-                  Icon(
-                    Icons.location_on,
-                    size: 16,
-                    color: scheme.tertiary,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      route.startPoint,
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ),
-                ],
-              ),
-              Row(
-                children: [
-                  Icon(Icons.location_on, size: 16, color: scheme.error),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      route.endPoint,
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              // Additional info
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: [
-                  _buildInfoChip(
-                    Icons.access_time,
-                    '${route.operatingTime.from} - ${route.operatingTime.to}',
-                  ),
-                  _buildInfoChip(Icons.timer, route.tripTime),
-                  _buildInfoChip(Icons.straighten, '${route.totalDistance} km'),
-                  _buildInfoChip(Icons.schedule, route.frequency),
-                ],
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildStatusBadge(RouteStatus status) {
-    Color color;
-    String text;
+    Color bgColor;
+    Color fgColor;
+    String text = 'Hoạt động';
 
     switch (status) {
       case RouteStatus.active:
-        color = Colors.green;
-        text = 'Hoạt động';
+        bgColor = const Color(0xFFECFDF5);
+        fgColor = const Color(0xFF047857);
         break;
       case RouteStatus.inactive:
-        color = Colors.grey;
-        text = 'Ngừng';
+        bgColor = const Color(0xFFF1F5F9);
+        fgColor = const Color(0xFF475569);
+        text = 'Tạm ngừng';
         break;
       case RouteStatus.underMaintenance:
-        color = Colors.orange;
-        text = 'Bảo trì';
+        bgColor = const Color(0xFFFFFBEB);
+        fgColor = const Color(0xFFD97706);
         break;
       case RouteStatus.suspended:
-        color = Colors.red;
-        text = 'Tạm dừng';
+        bgColor = const Color(0xFFFEF2F2);
+        fgColor = const Color(0xFFBE123C);
         break;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color),
+        color: bgColor,
+        borderRadius: BorderRadius.circular(100),
       ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: fgColor, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              color: fgColor,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildInfoChip(IconData icon, String text) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: scheme.onSurfaceVariant),
-          const SizedBox(width: 4),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 12,
-              color: scheme.onSurfaceVariant,
-            ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: const Color(0xFF94A3B8)),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF64748B),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../../domain/entities/station.dart';
+import '../../../widgets/map/map_icons.dart';
 
 class LiveMapCard extends StatelessWidget {
   final List<Station> stations;
@@ -125,14 +126,7 @@ class LiveMapCard extends StatelessWidget {
   }
 
   IconData _stationIcon(StationType type) {
-    switch (type) {
-      case StationType.METRO_STATION:
-        return Icons.train_rounded;
-      case StationType.FERRY_TERMINAL:
-        return Icons.directions_boat_rounded;
-      default:
-        return Icons.directions_bus_rounded;
-    }
+    return MapIcons.stationType(type);
   }
 
   Color _stationColor(StationType type, Color primary) {

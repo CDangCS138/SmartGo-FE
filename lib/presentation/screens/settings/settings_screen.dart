@@ -1,207 +1,331 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../blocs/theme/theme_bloc.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/auth/auth_event.dart';
+import '../../blocs/auth/auth_state.dart';
 import '../../../core/routes/app_routes.dart';
+import '../../../core/constants/ui_constants.dart';
+import '../../../core/services/storage_service.dart';
+import '../../../core/di/injection.dart';
 import 'package:smartgo/l10n/app_localizations.dart';
 
-/// Settings Screen
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final scheme = Theme.of(context).colorScheme;
+    final authState = context.watch<AuthBloc>().state;
+    final user = authState is AuthAuthenticated ? authState.user : null;
+
+    String role = 'MEMBER';
+    final rawData = getIt<StorageService>().getUserData();
+    if (rawData != null && rawData.isNotEmpty) {
+      try {
+        final parsed = json.decode(rawData);
+        if (parsed['role'] != null) {
+          role = parsed['role'].toString().toUpperCase();
+        }
+      } catch (_) {}
+    }
+
+    final isAdmin = role == 'ADMIN';
+    final name = user?.name ?? 'Khách';
+    final email = user?.email ?? 'Chưa đăng nhập';
+    final initials = name.trim().isEmpty
+        ? 'SG'
+        : name.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase();
 
     return Scaffold(
-      backgroundColor: scheme.surfaceContainerLowest,
-      appBar: AppBar(
-        title: Text(l10n.settings),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go(AppRoutes.home),
-        ),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-        children: [
-          _buildSectionCard(
-            context,
-            title: 'Tài khoản',
+      backgroundColor: UIConstants.scaffoldBackground,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 112),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _settingTile(
-                context,
-                icon: Icons.person_outline,
-                title: 'Hồ sơ cá nhân',
-                subtitle: 'Thông tin tài khoản và tuỳ chọn nhanh',
-                onTap: () => context.push(AppRoutes.profile),
-              ),
-              const SizedBox(height: 8),
-              _settingTile(
-                context,
-                icon: Icons.smart_toy_outlined,
-                title: 'SmartGo AI Assistant',
-                subtitle: 'Chat với AI có RAG từ tuyến, trạm và FAQ',
-                onTap: () => context.go(AppRoutes.chatbot),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildSectionCard(
-            context,
-            title: 'Tùy chỉnh',
-            children: [
-              BlocBuilder<ThemeBloc, ThemeState>(
-                builder: (context, state) {
-                  return _settingTile(
-                    context,
-                    icon: Icons.palette_outlined,
-                    title: l10n.theme,
-                    subtitle: _getThemeName(context, state.themeMode),
-                    onTap: () => context.go(AppRoutes.themeSettings),
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
-              _settingTile(
-                context,
-                icon: Icons.language_outlined,
-                title: l10n.language,
-                subtitle: 'Thiết lập ngôn ngữ hiển thị',
-                onTap: () => context.go(AppRoutes.languageSettings),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildSectionCard(
-            context,
-            title: 'Quản trị',
-            children: [
-              _settingTile(
-                context,
-                icon: Icons.manage_accounts_outlined,
-                title: 'Quản lý người dùng',
-                subtitle: 'CRUD users cho admin',
-                onTap: () => context.go(AppRoutes.usersAdmin),
-              ),
-              const SizedBox(height: 8),
-              _settingTile(
-                context,
-                icon: Icons.psychology_alt_outlined,
-                title: 'Chatbot admin',
-                subtitle: 'Embed knowledge va quan tri messages',
-                onTap: () => context.go(AppRoutes.chatbotAdmin),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.logout),
-              label: Text(l10n.logout),
-              onPressed: () {
-                _showLogoutDialog(context);
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionCard(
-    BuildContext context, {
-    required String title,
-    required List<Widget> children,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 10),
-          ...children,
-        ],
-      ),
-    );
-  }
-
-  Widget _settingTile(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: scheme.outlineVariant),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: scheme.onPrimaryContainer, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                    ),
+              // Header
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 24, 20, 0),
+                child: Text(
+                  'Tài khoản',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: UIConstants.textPrimary,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: scheme.onSurfaceVariant,
-                      fontSize: 12,
+                ),
+              ),
+
+              // Gradient Profile Card
+              Container(
+                margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0D9488), Color(0xFF14B8A6)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF0D9488).withValues(alpha: 0.3),
+                      blurRadius: 16,
+                      offset: const Offset(0, 8),
                     ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 56,
+                          height: 56,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            initials,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                email,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Cài đặt Section
+              BlocBuilder<ThemeBloc, ThemeState>(builder: (context, state) {
+                final themeName = _getThemeName(context, state.themeMode);
+                return _buildSection(
+                  title: 'Cài đặt chung',
+                  items: [
+                    _SectionItem(
+                      icon: Icons.person_outline_rounded,
+                      label: 'Thông tin cá nhân',
+                      onTap: () => context.go(AppRoutes.profile),
+                    ),
+                    _SectionItem(
+                      icon: Icons.palette_rounded,
+                      label: 'Tuỳ chọn hiển thị',
+                      meta: themeName,
+                      onTap: () => context.go(AppRoutes.themeSettings),
+                    ),
+                    _SectionItem(
+                      icon: Icons.language_rounded,
+                      label: 'Ngôn ngữ',
+                      onTap: () => context.go(AppRoutes.languageSettings),
+                    ),
+                  ],
+                );
+              }),
+
+              // Tiện ích Section
+              _buildSection(
+                title: 'Tiện ích',
+                items: [
+                  _SectionItem(
+                    icon: Icons.smart_toy_outlined,
+                    label: 'Trợ lý AI SmartGo',
+                    onTap: () => context.go(AppRoutes.chatbot),
                   ),
                 ],
               ),
-            ),
-            Icon(
-              Icons.chevron_right,
-              color: scheme.onSurfaceVariant,
-            ),
-          ],
+
+              if (isAdmin)
+                // Quản trị Section
+                _buildSection(
+                  title: 'Quản trị hệ thống',
+                  items: [
+                    _SectionItem(
+                      icon: Icons.manage_accounts_rounded,
+                      label: 'Quản lý người dùng',
+                      onTap: () => context.go(AppRoutes.usersAdmin),
+                    ),
+                    _SectionItem(
+                      icon: Icons.psychology_alt_rounded,
+                      label: 'Chatbot Admin',
+                      onTap: () => context.go(AppRoutes.chatbotAdmin),
+                    ),
+                  ],
+                ),
+
+              // Đăng xuất Button
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                child: InkWell(
+                  onTap: () => _showLogoutDialog(context),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: UIConstants.borderLight),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.logout_rounded,
+                            size: 18, color: UIConstants.danger),
+                        const SizedBox(width: 8),
+                        Text(
+                          l10n.logout,
+                          style: const TextStyle(
+                            color: UIConstants.danger,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSection(
+      {required String title, required List<_SectionItem> items}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 12,
+                color: UIConstants.textSecondary,
+              ),
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: UIConstants.borderLight),
+            ),
+            child: Column(
+              children: items.asMap().entries.map((entry) {
+                final index = entry.key;
+                final item = entry.value;
+                return Column(
+                  children: [
+                    if (index > 0)
+                      const Divider(
+                        height: 1,
+                        thickness: 1,
+                        color: UIConstants.borderLight,
+                      ),
+                    InkWell(
+                      onTap: item.onTap,
+                      borderRadius: BorderRadius.vertical(
+                        top: index == 0
+                            ? const Radius.circular(24)
+                            : Radius.zero,
+                        bottom: index == items.length - 1
+                            ? const Radius.circular(24)
+                            : Radius.zero,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 14),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                item.icon,
+                                size: 18,
+                                color: UIConstants.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                item.label,
+                                style: const TextStyle(
+                                  color: UIConstants.textPrimary,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            if (item.meta != null) ...[
+                              Text(
+                                item.meta!,
+                                style: const TextStyle(
+                                  color: UIConstants.textMuted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            const Icon(
+                              Icons.chevron_right_rounded,
+                              size: 16,
+                              color: UIConstants.iconMuted,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -243,4 +367,18 @@ class SettingsScreen extends StatelessWidget {
         return l10n.systemTheme;
     }
   }
+}
+
+class _SectionItem {
+  final IconData icon;
+  final String label;
+  final String? meta;
+  final VoidCallback onTap;
+
+  _SectionItem({
+    required this.icon,
+    required this.label,
+    this.meta,
+    required this.onTap,
+  });
 }
