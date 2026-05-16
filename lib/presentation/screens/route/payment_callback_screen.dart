@@ -82,7 +82,12 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
       return resultCode == '0';
     }
 
-    final vnpCode = widget.callbackParams['vnp_ResponseCode'];
+    final vnpCode = widget.callbackParams['vnp_ResponseCode'] ??
+        widget.callbackParams['responseCode'];
+    final successFlag = widget.callbackParams['success']?.toLowerCase().trim();
+    if (successFlag == 'true') {
+      return true;
+    }
     return vnpCode == '00';
   }
 
@@ -91,7 +96,9 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
       return widget.callbackParams['resultCode'] ?? '-';
     }
 
-    return widget.callbackParams['vnp_ResponseCode'] ?? '-';
+    return widget.callbackParams['vnp_ResponseCode'] ??
+        widget.callbackParams['responseCode'] ??
+        '-';
   }
 
   String _callbackAmountText() {
@@ -100,12 +107,14 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
       return raw > 0 ? '${_currencyFormat.format(raw)}đ' : '-';
     }
 
-    final raw = int.tryParse(widget.callbackParams['vnp_Amount'] ?? '0') ?? 0;
+    final vnpAmount = widget.callbackParams['vnp_Amount'];
+    final normalizedAmount = widget.callbackParams['amount'];
+    final raw = int.tryParse(vnpAmount ?? normalizedAmount ?? '0') ?? 0;
     if (raw <= 0) {
       return '-';
     }
 
-    final normalized = raw ~/ 100;
+    final normalized = vnpAmount != null ? raw ~/ 100 : raw;
     return '${_currencyFormat.format(normalized)}đ';
   }
 
@@ -114,7 +123,9 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
       return widget.callbackParams['orderId'] ?? '-';
     }
 
-    return widget.callbackParams['vnp_TxnRef'] ?? '-';
+    return widget.callbackParams['vnp_TxnRef'] ??
+        widget.callbackParams['txnRef'] ??
+        '-';
   }
 
   String _callbackTransactionNo() {
@@ -122,7 +133,9 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
       return widget.callbackParams['transId'] ?? '-';
     }
 
-    return widget.callbackParams['vnp_TransactionNo'] ?? '-';
+    return widget.callbackParams['vnp_TransactionNo'] ??
+        widget.callbackParams['transactionNo'] ??
+        '-';
   }
 
   String? _firstNonEmpty(Iterable<String?> values) {
