@@ -19,6 +19,7 @@ class PaymentRepositoryImpl implements PaymentRepository {
     required String orderType,
     String? bankCode,
     String? locale,
+    String? platform,
   }) async {
     try {
       final request = VnpayCreatePaymentRequest(
@@ -27,6 +28,7 @@ class PaymentRepositoryImpl implements PaymentRepository {
         orderType: orderType,
         bankCode: bankCode,
         locale: locale,
+        platform: platform,
       );
 
       final response = await remoteDataSource.createVnpayPayment(request, null);

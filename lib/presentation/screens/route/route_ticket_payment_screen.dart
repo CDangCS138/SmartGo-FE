@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:smartgo/core/di/injection.dart';
+import 'package:smartgo/core/errors/exceptions.dart';
+import 'package:smartgo/core/routes/app_routes.dart';
 import 'package:smartgo/core/services/storage_service.dart';
 import 'package:smartgo/core/utils/open_external_url.dart';
 import 'package:smartgo/data/datasources/payment_remote_data_source.dart';
@@ -798,24 +800,51 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
     late VnpayCreatePaymentResponse createResponse;
 
     try {
-      final createRequest = VnpayCreatePaymentRequest(
-        amount: _totalAmount,
-        orderDescription:
-            'Thanh toan ${selectedTicket.label} tuyen ${widget.route.routeCode} x$_quantity',
-        orderType: 'other',
-        bankCode: null,
-        locale: 'vn',
-      );
+      VnpayCreatePaymentRequest buildRequest({String? returnUrl}) {
+        return VnpayCreatePaymentRequest(
+          amount: _totalAmount,
+          orderDescription:
+              'Thanh toán ${selectedTicket.label} tuyến ${widget.route.routeCode} x$_quantity',
+          orderType: 'other',
+          bankCode: null,
+          locale: 'vn',
+          returnUrl: returnUrl,
+        );
+      }
 
-      createResponse = isMomo
-          ? await _paymentRemoteDataSource.createMomoPayment(
-              createRequest,
-              accessToken,
-            )
-          : await _paymentRemoteDataSource.createVnpayPayment(
-              createRequest,
-              accessToken,
-            );
+      Future<VnpayCreatePaymentResponse> createPayment(
+        VnpayCreatePaymentRequest request,
+      ) {
+        return isMomo
+            ? _paymentRemoteDataSource.createMomoPayment(
+                request,
+                accessToken,
+              )
+            : _paymentRemoteDataSource.createVnpayPayment(
+                request,
+                accessToken,
+              );
+      }
+
+      final requestedReturnUrl = _buildReturnUrl(isMomo: isMomo);
+      try {
+        createResponse = await createPayment(
+          buildRequest(returnUrl: requestedReturnUrl),
+        );
+      } on BadRequestException {
+        // Backend chưa hỗ trợ returnUrl, thử lại với payload cũ.
+        createResponse = await createPayment(buildRequest());
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Backend chưa hỗ trợ returnUrl, tạm dùng URL mặc định.',
+              ),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
 
       final paymentUri = Uri.tryParse(createResponse.paymentUrl);
       if (paymentUri == null) {
@@ -895,6 +924,18 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
         throw Exception('Không thể mở trang thanh toán $_selectedProvider');
       }
     }
+  }
+
+  String _buildReturnUrl({required bool isMomo}) {
+    final callbackPath =
+        isMomo ? AppRoutes.momoPaymentCallback : AppRoutes.vnpayPaymentCallback;
+
+    if (kIsWeb) {
+      final origin = Uri.base.origin;
+      return '$origin$callbackPath';
+    }
+
+    return 'smartgo://payment$callbackPath';
   }
 }
 

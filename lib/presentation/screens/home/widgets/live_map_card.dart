@@ -2,26 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/maps/app_tile_layer.dart';
 import '../../../../domain/entities/station.dart';
 import '../../../widgets/map/map_icons.dart';
 
 class LiveMapCard extends StatelessWidget {
   final List<Station> stations;
-  final VoidCallback onTapViewAll;
 
   const LiveMapCard({
     super.key,
     required this.stations,
-    required this.onTapViewAll,
   });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final activeStations = stations.take(12).toList();
-    final center = activeStations.isNotEmpty
-        ? LatLng(activeStations.first.latitude, activeStations.first.longitude)
-        : const LatLng(10.8231, 106.6297);
+    const maxPreviewStations = 40;
+    final previewStations = stations.length > maxPreviewStations
+        ? stations.take(maxPreviewStations).toList()
+        : stations;
+    final center = _resolveCenter(previewStations);
+    final visibleLabel = previewStations.length == stations.length
+        ? '${previewStations.length} trạm hiển thị'
+        : '${previewStations.length}/${stations.length} trạm hiển thị';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -37,91 +40,86 @@ class LiveMapCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: AspectRatio(
+          aspectRatio: 16 / 10,
+          child: Stack(
             children: [
-              const Text(
-                'Bản đồ trực tiếp',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: onTapViewAll,
-                child: const Text('Xem toàn bộ'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: AspectRatio(
-              aspectRatio: 16 / 10,
-              child: Stack(
-                children: [
-                  FlutterMap(
-                    options: MapOptions(
-                      initialCenter: center,
-                      initialZoom: 13,
-                      interactionOptions:
-                          const InteractionOptions(flags: InteractiveFlag.none),
-                    ),
-                    children: [
-                      TileLayer(
-                        urlTemplate:
-                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      ),
-                      MarkerLayer(
-                        markers: activeStations
-                            .map(
-                              (station) => Marker(
-                                point:
-                                    LatLng(station.latitude, station.longitude),
-                                width: 30,
-                                height: 30,
-                                child: _MapDot(
-                                  icon: _stationIcon(station.stationType),
-                                  color: _stationColor(
-                                      station.stationType, scheme.primary),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ],
+              FlutterMap(
+                options: MapOptions(
+                  initialCenter: center,
+                  initialZoom: 12.5,
+                  interactionOptions: const InteractionOptions(
+                    flags: InteractiveFlag.drag |
+                        InteractiveFlag.pinchZoom |
+                        InteractiveFlag.doubleTapZoom,
                   ),
-                  Positioned(
-                    top: 10,
-                    left: 10,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.56),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
-                        child: Text(
-                          '${activeStations.length} trạm hiển thị',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                ),
+                children: [
+                  AppTileLayer.standard(),
+                  MarkerLayer(
+                    markers: previewStations
+                        .map(
+                          (station) => Marker(
+                            point: LatLng(station.latitude, station.longitude),
+                            width: 30,
+                            height: 30,
+                            child: _MapDot(
+                              icon: _stationIcon(station.stationType),
+                              color: _stationColor(
+                                  station.stationType, scheme.primary),
+                            ),
                           ),
-                        ),
-                      ),
-                    ),
+                        )
+                        .toList(),
                   ),
                 ],
               ),
-            ),
+              Positioned(
+                top: 10,
+                left: 10,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.56),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    child: Text(
+                      visibleLabel,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
+    );
+  }
+
+  LatLng _resolveCenter(List<Station> previewStations) {
+    if (previewStations.isEmpty) {
+      return const LatLng(10.8231, 106.6297);
+    }
+
+    var latSum = 0.0;
+    var lonSum = 0.0;
+    for (final station in previewStations) {
+      latSum += station.latitude;
+      lonSum += station.longitude;
+    }
+
+    return LatLng(
+      latSum / previewStations.length,
+      lonSum / previewStations.length,
     );
   }
 

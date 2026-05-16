@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/di/injection.dart';
+import '../../../core/maps/app_tile_layer.dart';
 import '../../../core/platform/sse_client.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../core/services/storage_service.dart';
@@ -1350,10 +1351,7 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
               },
             ),
             children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.smartgo.app',
-              ),
+              AppTileLayer.standard(),
               if (polylinePoints.length >= 2)
                 PolylineLayer(
                   polylines: [

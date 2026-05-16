@@ -15,6 +15,7 @@ class CreateVnpayPaymentUseCase {
     required String orderType,
     String? bankCode,
     String? locale,
+    String? platform,
   }) async {
     return await repository.createVnpayPayment(
       amount: amount,
@@ -22,6 +23,7 @@ class CreateVnpayPaymentUseCase {
       orderType: orderType,
       bankCode: bankCode,
       locale: locale,
+      platform: platform,
     );
   }
 }

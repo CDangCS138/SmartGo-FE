@@ -16,12 +16,14 @@ import '../../presentation/screens/settings/language_settings_screen.dart';
 import '../../presentation/screens/users/users_admin_screen.dart';
 import '../../presentation/screens/profile/profile_screen.dart';
 import '../../presentation/screens/route/route_list_screen.dart';
+import '../../presentation/screens/favorites/favorite_routes_screen.dart';
 import '../../presentation/screens/route/payment_callback_screen.dart';
 import '../../presentation/screens/chatbot/chatbot_screen.dart';
 import '../../presentation/screens/chatbot/chatbot_admin_screen.dart';
 import '../../presentation/blocs/auth/auth_bloc.dart';
 import '../../presentation/blocs/auth/auth_state.dart';
 import '../../presentation/screens/home/widgets/home_navigation_bar.dart';
+import '../../data/models/favorite_route_model.dart';
 import 'app_routes.dart';
 
 class AppRouter {
@@ -91,7 +93,11 @@ class AppRouter {
               GoRoute(
                 path: AppRoutes.pathFindingDemo,
                 name: 'path-finding-demo',
-                builder: (context, state) => const PathFindingDemoScreen(),
+                builder: (context, state) => PathFindingDemoScreen(
+                  initialFavorite: state.extra is FavoriteRouteModel
+                      ? state.extra as FavoriteRouteModel
+                      : null,
+                ),
               ),
             ],
           ),
@@ -153,6 +159,11 @@ class AppRouter {
         builder: (context, state) => const RoutePlanningScreen(),
       ),
       GoRoute(
+        path: AppRoutes.favoriteRoutes,
+        name: 'favorite-routes',
+        builder: (context, state) => const FavoriteRoutesScreen(),
+      ),
+      GoRoute(
         path: AppRoutes.busSimulations,
         name: 'bus-simulations',
         builder: (context, state) => BusSimulationScreen(
@@ -170,6 +181,14 @@ class AppRouter {
         path: AppRoutes.chatbot,
         name: 'chatbot',
         builder: (context, state) => const ChatbotScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.paymentResult,
+        name: 'payment-result',
+        builder: (context, state) => PaymentCallbackScreen(
+          provider: _resolvePaymentProvider(state.uri.queryParameters),
+          callbackParams: state.uri.queryParameters,
+        ),
       ),
       GoRoute(
         path: AppRoutes.momoPaymentCallback,
@@ -213,7 +232,8 @@ class AppRouter {
   String? _authGuard(BuildContext context, GoRouterState state) {
     final currentPath = _normalizePath(state.uri.path);
 
-    if (currentPath == '/api/v1/auth/google/callback') {
+    if (currentPath == '/api/v1/auth/google/callback' ||
+        currentPath == AppRoutes.googleAuthCallback) {
       final query = state.uri.query;
       return query.isEmpty ? AppRoutes.login : '${AppRoutes.login}?$query';
     }
@@ -240,11 +260,11 @@ class AppRouter {
     final isAuthenticated = authBloc.state is AuthAuthenticated;
     final isLoginRoute = currentPath == AppRoutes.login;
     final isRegisterRoute = currentPath == AppRoutes.register;
-    final isPaymentCallbackRoute =
+    final isPaymentCallbackRoute = currentPath == AppRoutes.paymentResult ||
         currentPath == AppRoutes.momoPaymentCallback ||
-            currentPath == AppRoutes.vnpayPaymentCallback ||
-            currentPath == AppRoutes.momoPaymentCallbackApiCompat ||
-            currentPath == AppRoutes.vnpayPaymentCallbackApiCompat;
+        currentPath == AppRoutes.vnpayPaymentCallback ||
+        currentPath == AppRoutes.momoPaymentCallbackApiCompat ||
+        currentPath == AppRoutes.vnpayPaymentCallbackApiCompat;
 
     // If not authenticated and trying to access protected route, redirect to login
     if (!isAuthenticated &&
@@ -275,6 +295,25 @@ class AppRouter {
     }
 
     return normalizedPath;
+  }
+
+  String _resolvePaymentProvider(Map<String, String> params) {
+    final explicitProvider = params['provider']?.toLowerCase().trim();
+    if (explicitProvider == 'momo' || explicitProvider == 'vnpay') {
+      return explicitProvider!;
+    }
+
+    if (params.keys.any((key) => key.startsWith('vnp_'))) {
+      return 'vnpay';
+    }
+
+    if (params.containsKey('resultCode') ||
+        params.containsKey('orderId') ||
+        params.containsKey('transId')) {
+      return 'momo';
+    }
+
+    return 'momo';
   }
 }
 

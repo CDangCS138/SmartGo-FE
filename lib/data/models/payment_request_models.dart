@@ -4,6 +4,8 @@ class VnpayCreatePaymentRequest {
   final String orderType;
   final String? bankCode;
   final String? locale;
+  final String? platform;
+  final String? returnUrl;
 
   const VnpayCreatePaymentRequest({
     required this.amount,
@@ -11,6 +13,8 @@ class VnpayCreatePaymentRequest {
     required this.orderType,
     this.bankCode,
     this.locale,
+    this.platform,
+    this.returnUrl,
   });
 
   Map<String, dynamic> toJson() {
@@ -20,6 +24,8 @@ class VnpayCreatePaymentRequest {
       'orderType': orderType,
       if (bankCode != null) 'bankCode': bankCode,
       if (locale != null) 'locale': locale,
+      if (platform != null) 'platform': platform,
+      if (returnUrl != null) 'returnUrl': returnUrl,
     };
   }
 }

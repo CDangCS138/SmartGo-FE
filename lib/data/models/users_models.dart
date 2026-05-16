@@ -42,6 +42,8 @@ class AdminUserModel {
   final String name;
   final String role;
   final String? avatar;
+  final List<String> favoriteRouteIds;
+  final List<String> favoriteStationIds;
 
   const AdminUserModel({
     required this.id,
@@ -53,6 +55,8 @@ class AdminUserModel {
     this.createdBy,
     this.updatedAt,
     this.updatedBy,
+    this.favoriteRouteIds = const [],
+    this.favoriteStationIds = const [],
   });
 
   factory AdminUserModel.fromJson(Map<String, dynamic> json) {
@@ -66,6 +70,8 @@ class AdminUserModel {
       name: (json['name'] ?? '').toString(),
       role: (json['role'] ?? 'member').toString(),
       avatar: json['avatar']?.toString(),
+      favoriteRouteIds: _parseStringList(json['favoriteRouteIds']),
+      favoriteStationIds: _parseStringList(json['favoriteStationIds']),
     );
   }
 
@@ -76,5 +82,12 @@ class AdminUserModel {
 
     final text = raw.toString();
     return DateTime.tryParse(text);
+  }
+
+  static List<String> _parseStringList(dynamic raw) {
+    if (raw is List) {
+      return raw.map((item) => item.toString()).toList();
+    }
+    return const <String>[];
   }
 }

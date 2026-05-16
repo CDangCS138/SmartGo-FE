@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/routes/app_routes.dart';
 import 'package:smartgo/core/services/storage_service.dart';
+import 'package:smartgo/core/utils/open_external_url.dart';
 import 'package:smartgo/data/datasources/payment_remote_data_source.dart';
 import 'package:smartgo/data/models/payment_response_models.dart';
 
@@ -122,6 +125,109 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
     return widget.callbackParams['vnp_TransactionNo'] ?? '-';
   }
 
+  String? _firstNonEmpty(Iterable<String?> values) {
+    for (final value in values) {
+      final trimmed = value?.trim();
+      if (trimmed != null && trimmed.isNotEmpty && trimmed != '-') {
+        return trimmed;
+      }
+    }
+    return null;
+  }
+
+  String? _resolveQrData() {
+    return _firstNonEmpty([
+      _verifyResponse?.qrData,
+      widget.callbackParams['qrData'],
+      widget.callbackParams['qr_code'],
+      widget.callbackParams['qrCode'],
+      widget.callbackParams['ticketCode'],
+      widget.callbackParams['ticket_code'],
+      _callbackTxnRef(),
+      _callbackTransactionNo(),
+    ]);
+  }
+
+  Widget _buildQrSection({
+    required bool effectiveSuccess,
+    required String? qrData,
+  }) {
+    if (_isVerifying) {
+      return const _SectionCard(
+        title: 'Mã QR lên tàu',
+        children: [
+          Center(child: CircularProgressIndicator()),
+          SizedBox(height: 12),
+          Text('Đang tạo mã QR...'),
+        ],
+      );
+    }
+
+    if (!effectiveSuccess) {
+      return const _SectionCard(
+        title: 'Mã QR lên tàu',
+        children: [
+          Text('Thanh toán chưa thành công. Chưa thể tạo mã QR.'),
+        ],
+      );
+    }
+
+    if (qrData == null) {
+      return const _SectionCard(
+        title: 'Mã QR lên tàu',
+        children: [
+          Text('Chưa có mã QR cho giao dịch này.'),
+        ],
+      );
+    }
+
+    return _SectionCard(
+      title: 'Mã QR lên tàu',
+      children: [
+        Center(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outline,
+              ),
+            ),
+            child: QrImageView(
+              data: qrData,
+              version: QrVersions.auto,
+              size: 220,
+              backgroundColor: Colors.white,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Dùng mã này để quét khi lên tàu.',
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Uri _buildAppDeepLink() {
+    const providerPath = AppRoutes.paymentResult;
+    return Uri(
+      scheme: 'smartgo',
+      host: 'payment',
+      path: providerPath,
+      queryParameters: widget.callbackParams.isEmpty
+          ? null
+          : Map<String, String>.from(widget.callbackParams),
+    );
+  }
+
+  Future<void> _openInApp() async {
+    final uri = _buildAppDeepLink();
+    await openExternalUrl(uri, webTarget: '_self');
+  }
+
   @override
   Widget build(BuildContext context) {
     final callbackSuccess = _isCallbackSuccess();
@@ -141,7 +247,7 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Kết quả thanh toán'),
+        title: const Text('Mã QR lên tàu'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -152,6 +258,11 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
               success: effectiveSuccess,
               title: title,
               subtitle: subtitle,
+            ),
+            const SizedBox(height: 16),
+            _buildQrSection(
+              effectiveSuccess: effectiveSuccess,
+              qrData: _resolveQrData(),
             ),
             const SizedBox(height: 16),
             _SectionCard(
@@ -167,6 +278,14 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
                 _DetailRow(label: 'Số tiền', value: _callbackAmountText()),
               ],
             ),
+            if (kIsWeb) ...[
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: _openInApp,
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Mở trong ứng dụng SmartGo'),
+              ),
+            ],
             const SizedBox(height: 16),
             OutlinedButton(
               onPressed: () => context.go(AppRoutes.routes),

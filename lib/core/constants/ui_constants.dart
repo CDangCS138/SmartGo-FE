@@ -35,6 +35,9 @@ class UIConstants {
   static const Color busBg = Color(0xFFFFFBEB);
   static const Color busFg = Color(0xFFD97706);
 
+  static const Color favoriteBg = Color(0xFFFEF2F2);
+  static const Color favoriteFg = Color(0xFFEF4444);
+
   // Shadows
   static const List<BoxShadow> softShadow = [
     BoxShadow(

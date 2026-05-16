@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
+import '../../../core/maps/app_tile_layer.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../core/services/text_to_speech_service.dart';
 import '../../../domain/entities/path_finding.dart';
@@ -1082,10 +1083,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen>
         initialZoom: 13,
       ),
       children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.smartgo.app',
-        ),
+        AppTileLayer.standard(),
         if (points.length > 1)
           PolylineLayer(
             polylines: [
