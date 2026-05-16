@@ -3,11 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:http/http.dart' as http;
 import 'package:smartgo/core/di/injection.dart';
+import 'package:smartgo/core/maps/app_tile_layer.dart';
 import 'package:smartgo/core/services/route_geometry_service.dart';
+import 'package:smartgo/data/datasources/user_favorites_remote_data_source.dart';
 import 'package:smartgo/domain/entities/route.dart';
 import 'package:smartgo/domain/entities/station.dart';
 import 'package:smartgo/domain/repositories/route_repository.dart';
+import 'package:smartgo/presentation/blocs/auth/auth_bloc.dart';
+import 'package:smartgo/presentation/blocs/auth/auth_event.dart';
+import 'package:smartgo/presentation/blocs/auth/auth_state.dart';
 import 'package:smartgo/presentation/blocs/station/station_bloc.dart';
 import 'package:smartgo/presentation/blocs/station/station_event.dart';
 import 'package:smartgo/presentation/blocs/station/station_state.dart';
@@ -36,6 +42,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   final RouteGeometryService _routeGeometryService =
       getIt<RouteGeometryService>();
   final RouteRepository _routeRepository = getIt<RouteRepository>();
+  late final UserFavoritesRemoteDataSource _favoritesDataSource;
+  late final String _favoriteRouteId;
+  bool _isFavorite = false;
+  bool _isUpdatingFavorite = false;
 
   late BusRoute _route;
   BusRoute? _forwardRoute;
@@ -54,6 +64,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   void initState() {
     super.initState();
     _route = widget.route;
+    _favoriteRouteId = widget.route.id;
+    _favoritesDataSource =
+        UserFavoritesRemoteDataSource(client: getIt<http.Client>());
     _seedDirectionRoutesFromCurrent();
     _tabController = TabController(length: 3, vsync: this);
     if (_forwardCodes.isEmpty || _backwardCodes.isEmpty) {
@@ -61,6 +74,98 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     } else {
       _loadStations();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncFavoriteFromAuth(context.read<AuthBloc>().state);
+  }
+
+  void _syncFavoriteFromAuth(AuthState state) {
+    if (state is AuthAuthenticated) {
+      final isFavorite = state.user.favoriteRouteIds.contains(_favoriteRouteId);
+      if (isFavorite != _isFavorite) {
+        setState(() {
+          _isFavorite = isFavorite;
+        });
+      }
+      return;
+    }
+
+    if (_isFavorite) {
+      setState(() {
+        _isFavorite = false;
+      });
+    }
+  }
+
+  Future<void> _toggleFavorite() async {
+    if (_isUpdatingFavorite) {
+      return;
+    }
+
+    final authState = context.read<AuthBloc>().state;
+    if (authState is! AuthAuthenticated) {
+      _showSnack('Vui lòng đăng nhập để lưu yêu thích', isError: true);
+      return;
+    }
+
+    final currentRouteIds = authState.user.favoriteRouteIds;
+    final currentStationIds = authState.user.favoriteStationIds;
+    final nextRouteIds = currentRouteIds.toSet();
+    final wasFavorite = nextRouteIds.contains(_favoriteRouteId);
+
+    if (wasFavorite) {
+      nextRouteIds.remove(_favoriteRouteId);
+    } else {
+      nextRouteIds.add(_favoriteRouteId);
+    }
+
+    setState(() {
+      _isUpdatingFavorite = true;
+      _isFavorite = !wasFavorite;
+    });
+
+    try {
+      await _favoritesDataSource.updateFavorites(
+        userId: authState.user.id,
+        favoriteRouteIds: nextRouteIds.toList(),
+        favoriteStationIds: currentStationIds,
+      );
+      if (!mounted) {
+        return;
+      }
+      context.read<AuthBloc>().add(const GetCurrentUserEvent());
+      _showSnack(
+        wasFavorite ? 'Đã bỏ tuyến yêu thích' : 'Đã lưu tuyến yêu thích',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isFavorite = wasFavorite;
+      });
+      _showSnack('Không cập nhật được yêu thích: $error', isError: true);
+    } finally {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isUpdatingFavorite = false;
+      });
+    }
+  }
+
+  void _showSnack(String message, {bool isError = false}) {
+    final scheme = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? scheme.error : scheme.inverseSurface,
+      ),
+    );
   }
 
   void _seedDirectionRoutesFromCurrent() {
@@ -448,20 +553,24 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).padding.bottom;
-    final navOverlap = HomeNavigationBar.isVisible.value
-        ? kBottomNavigationBarHeight + bottomInset
-        : bottomInset;
+    return MultiBlocListener(
+      listeners: [
+        BlocListener<StationBloc, StationState>(
+          listener: (context, state) {
+            if (state is StationLoaded) {
+              _syncStations(state.stations);
 
-    return BlocListener<StationBloc, StationState>(
-      listener: (context, state) {
-        if (state is StationLoaded) {
-          _syncStations(state.stations);
-
-          // Load route geometries after stations are loaded
-          _loadRouteGeometries();
-        }
-      },
+              // Load route geometries after stations are loaded
+              _loadRouteGeometries();
+            }
+          },
+        ),
+        BlocListener<AuthBloc, AuthState>(
+          listener: (context, state) {
+            _syncFavoriteFromAuth(state);
+          },
+        ),
+      ],
       child: Scaffold(
         backgroundColor: const Color(0xFFF6F8FB),
         body: _isLoadingRoute
@@ -535,8 +644,32 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                                 border:
                                     Border.all(color: const Color(0xFFF1F5F9)),
                               ),
-                              child: const Icon(Icons.bookmark_outline_rounded,
-                                  size: 16, color: Color(0xFF94A3B8)),
+                              child: _isUpdatingFavorite
+                                  ? const Padding(
+                                      padding: EdgeInsets.all(10),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : IconButton(
+                                      tooltip: _isFavorite
+                                          ? 'Bỏ tuyến yêu thích'
+                                          : 'Lưu tuyến yêu thích',
+                                      onPressed: _toggleFavorite,
+                                      padding: EdgeInsets.zero,
+                                      constraints:
+                                          const BoxConstraints.tightFor(
+                                              width: 40, height: 40),
+                                      icon: Icon(
+                                        _isFavorite
+                                            ? Icons.bookmark_rounded
+                                            : Icons.bookmark_outline_rounded,
+                                        size: 16,
+                                        color: _isFavorite
+                                            ? const Color(0xFF0D9488)
+                                            : const Color(0xFF94A3B8),
+                                      ),
+                                    ),
                             ),
                           ],
                         ),
@@ -637,34 +770,40 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                   ),
                   // Buy ticket
                   Container(
-                    padding: EdgeInsets.fromLTRB(20, 16, 20, 24 + navOverlap),
                     decoration: const BoxDecoration(
                       color: Colors.white,
                       border: Border(top: BorderSide(color: Color(0xFFF1F5F9))),
                     ),
-                    child: ElevatedButton(
-                      onPressed: _isLoadingRoute ? null : _onBuyTicketPressed,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0D9488),
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size(double.infinity, 52),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16)),
-                        elevation: 4,
-                        shadowColor:
-                            const Color(0xFF0D9488).withValues(alpha: 0.25),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.attach_money_rounded, size: 18),
-                          SizedBox(width: 8),
-                          Text(
-                            'Mua vé tuyến này',
-                            style: TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.w600),
+                    child: SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                        child: ElevatedButton(
+                          onPressed:
+                              _isLoadingRoute ? null : _onBuyTicketPressed,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0D9488),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(double.infinity, 52),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16)),
+                            elevation: 4,
+                            shadowColor:
+                                const Color(0xFF0D9488).withValues(alpha: 0.25),
                           ),
-                        ],
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.attach_money_rounded, size: 18),
+                              SizedBox(width: 8),
+                              Text(
+                                'Mua vé tuyến này',
+                                style: TextStyle(
+                                    fontSize: 15, fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -1135,10 +1274,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 ),
               ),
               children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.smartgo.app',
-                ),
+                AppTileLayer.standard(),
                 PolylineLayer(
                   polylines: [
                     Polyline(

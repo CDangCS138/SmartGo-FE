@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
+import '../../../core/maps/app_tile_layer.dart';
 import '../../../core/platform/geolocation.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/services/route_geometry_service.dart';
@@ -1170,10 +1171,7 @@ out body;
               maxZoom: 19,
             ),
             children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.smartgo.app',
-              ),
+              AppTileLayer.standard(),
               if (_routePoints.isNotEmpty)
                 PolylineLayer(
                   polylines: [

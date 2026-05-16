@@ -9,11 +9,16 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:smartgo/core/maps/app_tile_layer.dart';
 import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/logging/app_logger.dart';
 import 'package:smartgo/core/services/text_to_speech_service.dart';
 import 'package:smartgo/core/services/route_geometry_service.dart';
 import 'package:smartgo/core/themes/app_colors.dart';
+import 'package:smartgo/data/datasources/favorite_routes_remote_data_source.dart';
+import 'package:smartgo/data/models/favorite_route_model.dart';
+import 'package:smartgo/presentation/blocs/auth/auth_bloc.dart';
+import 'package:smartgo/presentation/blocs/auth/auth_state.dart';
 import 'package:smartgo/presentation/blocs/route/route_bloc.dart';
 import 'package:smartgo/presentation/blocs/route/route_event.dart';
 import 'package:smartgo/presentation/blocs/route/route_state.dart';
@@ -95,7 +100,12 @@ class _PathGeometryCacheEntry {
 }
 
 class PathFindingDemoScreen extends StatefulWidget {
-  const PathFindingDemoScreen({super.key});
+  final FavoriteRouteModel? initialFavorite;
+
+  const PathFindingDemoScreen({
+    super.key,
+    this.initialFavorite,
+  });
 
   @override
   State<PathFindingDemoScreen> createState() => _PathFindingDemoScreenState();
@@ -125,6 +135,10 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   List<PathResult>? _paths;
   bool _isLoading = false;
   bool _isSpeakingRouteGuide = false;
+  late final FavoriteRoutesRemoteDataSource _favoriteRoutesDataSource;
+  FavoriteRouteModel? _pendingFavorite;
+  bool _didApplyInitialFavorite = false;
+  bool _isSavingFavorite = false;
 
   // Route geometry service and cache
   final RouteGeometryService _routeGeometryService =
@@ -153,8 +167,14 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   @override
   void initState() {
     super.initState();
+    _favoriteRoutesDataSource =
+        FavoriteRoutesRemoteDataSource(client: getIt<http.Client>());
+    _pendingFavorite = widget.initialFavorite;
     _loadStations();
     _syncBottomNavVisibility();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _applyInitialFavoriteIfNeeded();
+    });
   }
 
   @override
@@ -175,6 +195,16 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(covariant PathFindingDemoScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialFavorite?.id != oldWidget.initialFavorite?.id) {
+      _pendingFavorite = widget.initialFavorite;
+      _didApplyInitialFavorite = false;
+      _applyInitialFavoriteIfNeeded();
+    }
+  }
+
   void _syncBottomNavVisibility() {
     HomeNavigationBar.isVisible.value = !_showResults && !_showFullRouteDetail;
   }
@@ -187,10 +217,98 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       setState(() {
         _stations = currentState.stations;
       });
+      _applyInitialFavoriteIfNeeded();
       return;
     }
     // Otherwise fetch from API
     context.read<StationBloc>().add(const FetchAllStationsEvent(limit: 5000));
+  }
+
+  void _applyInitialFavoriteIfNeeded() {
+    final favorite = _pendingFavorite;
+    if (favorite == null || _didApplyInitialFavorite) {
+      return;
+    }
+
+    if (favorite.usesStationCode) {
+      if (_stations.isEmpty) {
+        return;
+      }
+
+      final fromStation = _findStationByCode(favorite.fromStationCode);
+      final toStation = _findStationByCode(favorite.toStationCode);
+
+      if (fromStation == null || toStation == null) {
+        _didApplyInitialFavorite = true;
+        _showError('Khong tim thay tram cho tuyen yeu thich nay');
+        return;
+      }
+
+      if (_inputMode != InputMode.busStop) {
+        _onInputModeChanged(InputMode.busStop);
+      }
+
+      setState(() {
+        _fromStation = fromStation;
+        _toStation = toStation;
+        _fromPoint = LatLng(fromStation.latitude, fromStation.longitude);
+        _toPoint = LatLng(toStation.latitude, toStation.longitude);
+        _paths = null;
+        _selectedPathIndex = null;
+        _showResults = false;
+        _showFullRouteDetail = false;
+        _isSpeakingRouteGuide = false;
+      });
+    } else if (favorite.usesCoordinates) {
+      if (_inputMode != InputMode.address) {
+        _onInputModeChanged(InputMode.address);
+      }
+
+      final from = favorite.fromCoordinates!;
+      final to = favorite.toCoordinates!;
+      setState(() {
+        _fromPoint = LatLng(from.latitude, from.longitude);
+        _toPoint = LatLng(to.latitude, to.longitude);
+        _fromAddressController.text = _formatCoordinateLabel(from);
+        _toAddressController.text = _formatCoordinateLabel(to);
+        _paths = null;
+        _selectedPathIndex = null;
+        _showResults = false;
+        _showFullRouteDetail = false;
+        _isSpeakingRouteGuide = false;
+      });
+    } else {
+      _didApplyInitialFavorite = true;
+      return;
+    }
+
+    _didApplyInitialFavorite = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      if (_fromPoint != null) {
+        _mapController.move(_fromPoint!, 14);
+      }
+      _findPath();
+    });
+  }
+
+  Station? _findStationByCode(String? stationCode) {
+    if (stationCode == null || stationCode.trim().isEmpty) {
+      return null;
+    }
+
+    for (final station in _stations) {
+      if (station.stationCode == stationCode || station.id == stationCode) {
+        return station;
+      }
+    }
+    return null;
+  }
+
+  String _formatCoordinateLabel(PathCoordinates coordinates) {
+    return '${coordinates.latitude.toStringAsFixed(5)}, ${coordinates.longitude.toStringAsFixed(5)}';
   }
 
   void _showInfo(String message) {
@@ -2056,6 +2174,154 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     }
   }
 
+  String _formatLatLng(LatLng point) {
+    return '${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}';
+  }
+
+  String _resolveLabelOrCoordinates({required bool isFrom}) {
+    final label = _resolvePointLabel(isFrom: isFrom);
+    if (label != null) {
+      return label;
+    }
+
+    final point = isFrom ? _fromPoint : _toPoint;
+    if (point != null) {
+      return _formatLatLng(point);
+    }
+
+    return isFrom ? 'Diem di' : 'Diem den';
+  }
+
+  String _buildDefaultFavoriteName() {
+    final fromLabel = _resolveLabelOrCoordinates(isFrom: true);
+    final toLabel = _resolveLabelOrCoordinates(isFrom: false);
+    return '$fromLabel -> $toLabel';
+  }
+
+  Future<String?> _promptFavoriteName(String defaultName) async {
+    final controller = TextEditingController(text: defaultName);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Lưu tuyến yêu thích'),
+          content: TextField(
+            controller: controller,
+            decoration: const InputDecoration(
+              hintText: 'Nhập tên gợi nhớ',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Hủy'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                Navigator.of(context).pop(value.isEmpty ? defaultName : value);
+              },
+              child: const Text('Lưu'),
+            ),
+          ],
+        );
+      },
+    );
+    return result;
+  }
+
+  bool get _canSaveFavorite {
+    if (_isSavingFavorite || _isLoading) {
+      return false;
+    }
+
+    final hasSelection = _inputMode == InputMode.busStop
+        ? _fromStation != null && _toStation != null
+        : _fromPoint != null && _toPoint != null;
+    if (!hasSelection) {
+      return false;
+    }
+
+    return _paths != null && _paths!.isNotEmpty;
+  }
+
+  Future<void> _saveFavoriteRoute() async {
+    if (_isSavingFavorite) {
+      return;
+    }
+
+    final authState = context.read<AuthBloc>().state;
+    if (authState is! AuthAuthenticated) {
+      _showError('Vui lòng đăng nhập để lưu yêu thích');
+      return;
+    }
+
+    if (_inputMode == InputMode.busStop) {
+      if (_fromStation == null || _toStation == null) {
+        _showError('Vui lòng chọn trạm xuất phát và trạm đích');
+        return;
+      }
+    } else {
+      if (_fromPoint == null || _toPoint == null) {
+        _showError('Vui lòng chọn điểm xuất phát và điểm đích');
+        return;
+      }
+    }
+
+    final defaultName = _buildDefaultFavoriteName();
+    final routeName = await _promptFavoriteName(defaultName);
+    if (!mounted) {
+      return;
+    }
+    if (routeName == null || routeName.trim().isEmpty) {
+      return;
+    }
+
+    final request = FavoriteRouteModel(
+      id: '',
+      routeName: routeName.trim(),
+      fromStationCode:
+          _inputMode == InputMode.busStop ? _fromStation!.stationCode : null,
+      toStationCode:
+          _inputMode == InputMode.busStop ? _toStation!.stationCode : null,
+      fromCoordinates: _inputMode == InputMode.busStop
+          ? null
+          : PathCoordinates(
+              latitude: _fromPoint!.latitude,
+              longitude: _fromPoint!.longitude,
+            ),
+      toCoordinates: _inputMode == InputMode.busStop
+          ? null
+          : PathCoordinates(
+              latitude: _toPoint!.latitude,
+              longitude: _toPoint!.longitude,
+            ),
+    );
+
+    setState(() {
+      _isSavingFavorite = true;
+    });
+
+    try {
+      await _favoriteRoutesDataSource.createFavoriteRoute(request: request);
+      if (!mounted) {
+        return;
+      }
+      _showInfo('Đã lưu tuyến yêu thích');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showError('Không lưu được tuyến yêu thích: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSavingFavorite = false;
+        });
+      }
+    }
+  }
+
   void _reset() {
     if (_isSpeakingRouteGuide) {
       TextToSpeechService.instance.stop();
@@ -2148,6 +2414,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                   setState(() {
                     _stations = state.stations;
                   });
+                  _applyInitialFavoriteIfNeeded();
                 } else if (state is StationError) {
                   _showError(state.message);
                 }
@@ -2245,10 +2512,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         onLongPress: (_, point) => _onMapLongPress(point),
       ),
       children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.smartgo.app',
-        ),
+        AppTileLayer.standard(),
         if (hasRouteResults)
           PolylineLayer(
             polylines: _buildRoutePolylines(),
@@ -2939,6 +3203,31 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                   borderRadius: BorderRadius.circular(18),
                 ),
               ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: controlHeight,
+            width: controlHeight,
+            child: IconButton(
+              tooltip: _canSaveFavorite
+                  ? 'Lưu tuyến yêu thích'
+                  : 'Hãy tìm đường trước',
+              onPressed: _canSaveFavorite ? _saveFavoriteRoute : null,
+              style: IconButton.styleFrom(
+                backgroundColor: scheme.surfaceContainerHighest,
+                foregroundColor: scheme.onSurfaceVariant,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+              icon: _isSavingFavorite
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.favorite_border, size: 18),
             ),
           ),
         ],

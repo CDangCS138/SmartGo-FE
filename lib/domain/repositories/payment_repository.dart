@@ -8,6 +8,7 @@ abstract class PaymentRepository {
     required String orderType,
     String? bankCode,
     String? locale,
+    String? platform,
   });
 
   Future<Either<Failure, PaymentResultData>> getVnpayReturnResult();

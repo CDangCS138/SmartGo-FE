@@ -69,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
               delegate: SliverChildListDelegate([
                 _buildHeader(greetingName),
                 _buildSearch(),
+                _buildFavoriteRoutesShortcut(),
                 _buildShortcuts(),
                 _buildLiveMapPreview(activeStations),
                 _buildPopularRoutes(routes),
@@ -248,6 +249,68 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildFavoriteRoutesShortcut() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: GestureDetector(
+        onTap: () => context.go(AppRoutes.favoriteRoutes),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: UIConstants.mediumShadow,
+            border: Border.all(color: UIConstants.borderLight),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: UIConstants.favoriteBg,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.favorite_border,
+                  color: UIConstants.favoriteFg,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tuyến yêu thích',
+                      style: TextStyle(
+                        color: UIConstants.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Mở nhanh các lộ trình đã lưu',
+                      style: TextStyle(
+                        color: UIConstants.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: UIConstants.iconMuted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildShortcuts() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
@@ -373,7 +436,6 @@ class _HomeScreenState extends State<HomeScreen> {
             delay: const Duration(milliseconds: 170),
             child: LiveMapCard(
               stations: activeStations,
-              onTapViewAll: () => context.go(AppRoutes.liveMap),
             ),
           ),
         ],

@@ -7,6 +7,7 @@ import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../core/maps/app_tile_layer.dart';
 import '../../../core/platform/geolocation.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../domain/entities/station.dart';
@@ -464,10 +465,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                 initialZoom: _currentZoom,
               ),
               children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.smartgo.app',
-                ),
+                AppTileLayer.standard(),
                 MarkerClusterLayerWidget(
                   options: MarkerClusterLayerOptions(
                     maxClusterRadius: 60,

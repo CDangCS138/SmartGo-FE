@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -111,8 +110,9 @@ class _LoginScreenState extends State<LoginScreen> {
         // Continue OAuth even if local persistence is unavailable on web.
       }
 
+      const platform = kIsWeb ? 'web' : 'app';
       final authUri = Uri.parse(
-        '${AppEnv.baseUrl}/api/v1/auth/google?state=$state',
+        '${AppEnv.baseUrl}/api/v1/auth/google/$platform?state=$state',
       );
 
       if (kIsWeb) {
@@ -260,13 +260,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (expectedStates.isNotEmpty &&
           !expectedStates.contains(callbackState)) {
-        _showOAuthDebugDialog(
-          '''$_googleOAuthDebugPrefix
-phase: state_mismatch_before_exchange
-screen: login
-callback_state: $callbackState
-expected_states: ${expectedStates.join(', ')}
-uri_base: ${Uri.base}''',
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('State không khớp, vui lòng thử đăng nhập Google lại.'),
+            backgroundColor: Colors.red,
+          ),
         );
         return;
       }
@@ -293,60 +292,14 @@ uri_base: ${Uri.base}''',
     }
   }
 
-  void _showOAuthDebugDialog(String rawDebugMessage) {
-    if (!mounted) {
-      return;
-    }
-
-    final debugText =
-        rawDebugMessage.replaceFirst(_googleOAuthDebugPrefix, '').trim();
-
-    showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Google OAuth Debug'),
-          content: SingleChildScrollView(
-            child: SelectableText(debugText),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Đóng'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final navigator = Navigator.of(context);
-                final messenger = ScaffoldMessenger.of(context);
-                await Clipboard.setData(ClipboardData(text: debugText));
-                if (!mounted) {
-                  return;
-                }
-
-                navigator.pop();
-                messenger.showSnackBar(
-                  const SnackBar(
-                    content: Text('Đã copy thông tin Google OAuth debug'),
-                  ),
-                );
-              },
-              child: const Text('Copy'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   void _handleAuthError(String message) {
-    if (message.startsWith(_googleOAuthDebugPrefix)) {
-      _showOAuthDebugDialog(message);
-      return;
-    }
+    final safeMessage = message.startsWith(_googleOAuthDebugPrefix)
+        ? 'Đăng nhập Google không thành công. Vui lòng thử lại.'
+        : message;
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Text(safeMessage),
         backgroundColor: Colors.red,
       ),
     );

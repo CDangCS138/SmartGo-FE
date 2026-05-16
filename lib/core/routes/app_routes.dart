@@ -11,6 +11,7 @@ class AppRoutes {
   static const String busSimulations = '/bus-simulations';
   static const String routes = '/routes';
   static const String routeDetail = '/routes/:id';
+  static const String favoriteRoutes = '/favorite-routes';
   static const String settings = '/settings';
   static const String usersAdmin = '/settings/users';
   static const String themeSettings = '/settings/theme';
@@ -18,6 +19,8 @@ class AppRoutes {
   static const String profile = '/profile';
   static const String chatbot = '/chatbot';
   static const String chatbotAdmin = '/settings/chatbot-admin';
+  static const String googleAuthCallback = '/auth/callback';
+  static const String paymentResult = '/payment/result';
   static const String momoPaymentCallback = '/payment/momo-callback';
   static const String vnpayPaymentCallback = '/payment/vnpay-callback';
   static const String momoPaymentCallbackApiCompat =

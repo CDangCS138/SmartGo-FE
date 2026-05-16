@@ -27,6 +27,7 @@ class VnpayReturnResponse {
   final String transactionNo;
   final String orderInfo;
   final String payDate;
+  final String? qrData;
 
   const VnpayReturnResponse({
     required this.success,
@@ -37,11 +38,40 @@ class VnpayReturnResponse {
     required this.transactionNo,
     required this.orderInfo,
     required this.payDate,
+    this.qrData,
   });
+
+  static String? _readOptionalString(
+    Map<String, dynamic> data,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final value = data[key];
+      if (value is String) {
+        final trimmed = value.trim();
+        if (trimmed.isNotEmpty) {
+          return trimmed;
+        }
+      }
+    }
+    return null;
+  }
 
   factory VnpayReturnResponse.fromJson(Map<String, dynamic> json) {
     // Handle both nested and flat response structures
     final data = json['data'] as Map<String, dynamic>? ?? json;
+
+    final qrData = _readOptionalString(
+      data,
+      [
+        'qrData',
+        'qr_code',
+        'qrCode',
+        'ticketCode',
+        'ticket_code',
+        'qr',
+      ],
+    );
 
     return VnpayReturnResponse(
       success: data['success'] as bool? ?? false,
@@ -52,6 +82,7 @@ class VnpayReturnResponse {
       transactionNo: data['transactionNo'] as String? ?? '',
       orderInfo: data['orderInfo'] as String? ?? '',
       payDate: data['payDate'] as String? ?? '',
+      qrData: qrData,
     );
   }
 }

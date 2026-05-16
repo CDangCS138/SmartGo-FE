@@ -1,15 +1,22 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:smartgo/core/routes/app_routes.dart';
+import 'package:smartgo/core/di/injection.dart';
+import 'package:smartgo/data/datasources/user_favorites_remote_data_source.dart';
 import 'package:smartgo/domain/entities/route.dart';
 import 'package:smartgo/presentation/blocs/route/route_bloc.dart';
 import 'package:smartgo/presentation/blocs/route/route_event.dart';
 import 'package:smartgo/presentation/blocs/route/route_state.dart';
+import 'package:smartgo/presentation/blocs/auth/auth_bloc.dart';
+import 'package:smartgo/presentation/blocs/auth/auth_event.dart';
+import 'package:smartgo/presentation/blocs/auth/auth_state.dart';
 import 'package:smartgo/presentation/screens/route/route_detail_screen.dart';
 import 'package:smartgo/presentation/widgets/loading_indicator.dart';
+import 'package:http/http.dart' as http;
 
 class RouteListScreen extends StatefulWidget {
   const RouteListScreen({super.key});
@@ -25,11 +32,16 @@ class _RouteListScreenState extends State<RouteListScreen> {
   Timer? _routeSearchDebounce;
   RouteDirection _selectedDirection = RouteDirection.both;
   String _routeSearchQuery = '';
+  late final UserFavoritesRemoteDataSource _favoritesDataSource;
+  Set<String> _favoriteRouteIds = <String>{};
+  final Set<String> _updatingFavoriteIds = <String>{};
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _favoritesDataSource =
+        UserFavoritesRemoteDataSource(client: getIt<http.Client>());
 
     // Always fetch all routes on enter (legacy behavior).
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -40,6 +52,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
               routeCode: _routeSearchQuery,
             ),
           );
+      _syncFavoritesFromAuth(context.read<AuthBloc>().state);
     });
   }
 
@@ -54,6 +67,82 @@ class _RouteListScreenState extends State<RouteListScreen> {
   void _onScroll() {
     if (_isBottom) {
       context.read<RouteBloc>().add(const LoadMoreRoutesEvent());
+    }
+  }
+
+  void _syncFavoritesFromAuth(AuthState state) {
+    if (state is AuthAuthenticated) {
+      final next = state.user.favoriteRouteIds.toSet();
+      if (!setEquals(next, _favoriteRouteIds)) {
+        setState(() {
+          _favoriteRouteIds = next;
+        });
+      }
+      return;
+    }
+
+    if (_favoriteRouteIds.isNotEmpty) {
+      setState(() {
+        _favoriteRouteIds = <String>{};
+      });
+    }
+  }
+
+  Future<void> _toggleRouteFavorite(BusRoute route) async {
+    if (_updatingFavoriteIds.contains(route.id)) {
+      return;
+    }
+
+    final authState = context.read<AuthBloc>().state;
+    if (authState is! AuthAuthenticated) {
+      _showSnack('Vui long dang nhap de luu yeu thich', isError: true);
+      return;
+    }
+
+    final currentRouteIds = authState.user.favoriteRouteIds;
+    final currentStationIds = authState.user.favoriteStationIds;
+    final nextRouteIds = currentRouteIds.toSet();
+    final wasFavorite = nextRouteIds.contains(route.id);
+
+    if (wasFavorite) {
+      nextRouteIds.remove(route.id);
+    } else {
+      nextRouteIds.add(route.id);
+    }
+
+    setState(() {
+      _favoriteRouteIds = nextRouteIds;
+      _updatingFavoriteIds.add(route.id);
+    });
+
+    try {
+      await _favoritesDataSource.updateFavorites(
+        userId: authState.user.id,
+        favoriteRouteIds: nextRouteIds.toList(),
+        favoriteStationIds: currentStationIds,
+      );
+      if (!mounted) {
+        return;
+      }
+      context.read<AuthBloc>().add(const GetCurrentUserEvent());
+      _showSnack(
+        wasFavorite ? 'Da bo tuyet yeu thich' : 'Da luu tuyen yeu thich',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _favoriteRouteIds = currentRouteIds.toSet();
+      });
+      _showSnack('Khong cap nhat duoc yeu thich: $error', isError: true);
+    } finally {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _updatingFavoriteIds.remove(route.id);
+      });
     }
   }
 
@@ -128,6 +217,16 @@ class _RouteListScreenState extends State<RouteListScreen> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => RouteDetailScreen(route: route),
+      ),
+    );
+  }
+
+  void _showSnack(String message, {bool isError = false}) {
+    final scheme = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? scheme.error : scheme.inverseSurface,
       ),
     );
   }
@@ -268,138 +367,145 @@ class _RouteListScreenState extends State<RouteListScreen> {
             ),
           ),
           Expanded(
-            child: BlocBuilder<RouteBloc, RouteState>(
-              builder: (context, state) {
-                if (state is RouteLoading) {
-                  return const LoadingIndicator();
-                }
+            child: BlocListener<AuthBloc, AuthState>(
+              listener: (context, state) {
+                _syncFavoritesFromAuth(state);
+              },
+              child: BlocBuilder<RouteBloc, RouteState>(
+                builder: (context, state) {
+                  if (state is RouteLoading) {
+                    return const LoadingIndicator();
+                  }
 
-                if (state is RouteError) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 64,
-                          color: scheme.error,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          state.message,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _refreshRoutes,
-                          child: const Text('Thử lại'),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                if (state is RouteLoaded || state is RouteLoadingMore) {
-                  final routes = state is RouteLoaded
-                      ? state.routes
-                      : (state as RouteLoadingMore).currentRoutes;
-                  final totalCount =
-                      state is RouteLoaded ? state.totalCount : routes.length;
-
-                  if (routes.isEmpty) {
-                    return const Center(
+                  if (state is RouteError) {
+                    return Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.directions_bus_rounded,
-                              size: 48, color: Color(0xFFCBD5E1)),
-                          SizedBox(height: 12),
-                          Text('Không tìm thấy tuyến xe buýt',
-                              style: TextStyle(
-                                  color: Color(0xFF64748B), fontSize: 14)),
+                          Icon(
+                            Icons.error_outline,
+                            size: 64,
+                            color: scheme.error,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            state.message,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _refreshRoutes,
+                            child: const Text('Thử lại'),
+                          ),
                         ],
                       ),
                     );
                   }
 
-                  return Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 10),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  if (state is RouteLoaded || state is RouteLoadingMore) {
+                    final routes = state is RouteLoaded
+                        ? state.routes
+                        : (state as RouteLoadingMore).currentRoutes;
+                    final totalCount =
+                        state is RouteLoaded ? state.totalCount : routes.length;
+
+                    if (routes.isEmpty) {
+                      return const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            RichText(
-                              text: TextSpan(
-                                style: const TextStyle(
-                                    color: Color(0xFF64748B), fontSize: 12),
-                                children: [
-                                  const TextSpan(text: 'Hiển thị '),
-                                  TextSpan(
-                                    text: '${routes.length}',
-                                    style: const TextStyle(
-                                        color: Color(0xFF0F766E),
-                                        fontWeight: FontWeight.w600),
-                                  ),
-                                  TextSpan(text: '/$totalCount tuyến'),
-                                ],
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: const BoxDecoration(
-                                      color: Color(0xFF10B981),
-                                      shape: BoxShape.circle),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  _getDirectionText(),
-                                  style: const TextStyle(
-                                      color: Color(0xFF0D9488), fontSize: 12),
-                                ),
-                              ],
-                            ),
+                            Icon(Icons.directions_bus_rounded,
+                                size: 48, color: Color(0xFFCBD5E1)),
+                            SizedBox(height: 12),
+                            Text('Không tìm thấy tuyến xe buýt',
+                                style: TextStyle(
+                                    color: Color(0xFF64748B), fontSize: 14)),
                           ],
                         ),
-                      ),
-                      Expanded(
-                        child: ListView.builder(
-                          controller: _scrollController,
-                          itemCount: routes.length +
-                              (state is RouteLoadingMore ||
-                                      (state is RouteLoaded &&
-                                          state.hasMorePages)
-                                  ? 1
-                                  : 0),
-                          itemBuilder: (context, index) {
-                            if (index >= routes.length) {
-                              return const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(16.0),
-                                  child: LoadingIndicator(size: 28),
+                      );
+                    }
+
+                    return Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 10),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              RichText(
+                                text: TextSpan(
+                                  style: const TextStyle(
+                                      color: Color(0xFF64748B), fontSize: 12),
+                                  children: [
+                                    const TextSpan(text: 'Hiển thị '),
+                                    TextSpan(
+                                      text: '${routes.length}',
+                                      style: const TextStyle(
+                                          color: Color(0xFF0F766E),
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                    TextSpan(text: '/$totalCount tuyến'),
+                                  ],
                                 ),
-                              );
-                            }
-
-                            final route = routes[index];
-                            return Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                              child: _buildRouteCard(route),
-                            );
-                          },
+                              ),
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: const BoxDecoration(
+                                        color: Color(0xFF10B981),
+                                        shape: BoxShape.circle),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _getDirectionText(),
+                                    style: const TextStyle(
+                                        color: Color(0xFF0D9488), fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  );
-                }
+                        Expanded(
+                          child: ListView.builder(
+                            controller: _scrollController,
+                            itemCount: routes.length +
+                                (state is RouteLoadingMore ||
+                                        (state is RouteLoaded &&
+                                            state.hasMorePages)
+                                    ? 1
+                                    : 0),
+                            itemBuilder: (context, index) {
+                              if (index >= routes.length) {
+                                return const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(16.0),
+                                    child: LoadingIndicator(size: 28),
+                                  ),
+                                );
+                              }
 
-                return const Center(child: Text('Chọn tuyến để xem chi tiết'));
-              },
+                              final route = routes[index];
+                              return Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                                child: _buildRouteCard(route),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  return const Center(
+                      child: Text('Chọn tuyến để xem chi tiết'));
+                },
+              ),
             ),
           ),
         ],
@@ -432,6 +538,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
 
   Widget _buildRouteCard(BusRoute route) {
     final routeColor = _getRouteColor(route.routeCode);
+    final isFavorite = _favoriteRouteIds.contains(route.id);
+    final isUpdating = _updatingFavoriteIds.contains(route.id);
 
     return GestureDetector(
       onTap: () => _onRouteSelected(route),
@@ -481,6 +589,29 @@ class _RouteListScreenState extends State<RouteListScreen> {
                       const SizedBox(width: 10),
                       _buildStatusBadge(route.status),
                       const Spacer(),
+                      SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: isUpdating
+                            ? const Padding(
+                                padding: EdgeInsets.all(6.0),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : IconButton(
+                                padding: EdgeInsets.zero,
+                                onPressed: () => _toggleRouteFavorite(route),
+                                icon: Icon(
+                                  isFavorite
+                                      ? Icons.favorite
+                                      : Icons.favorite_border,
+                                  color: isFavorite
+                                      ? const Color(0xFFEF4444)
+                                      : const Color(0xFFCBD5E1),
+                                  size: 18,
+                                ),
+                              ),
+                      ),
                       const Icon(Icons.chevron_right_rounded,
                           color: Color(0xFFCBD5E1), size: 20),
                     ],
