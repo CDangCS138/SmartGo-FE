@@ -112,8 +112,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
       const platform = kIsWeb ? 'web' : 'app';
       final authUri = Uri.parse(
-        '${AppEnv.baseUrl}/api/v1/auth/google/$platform?state=$state',
-      );
+        '${AppEnv.baseUrl}/api/v1/auth/google/$platform',
+      ).replace(queryParameters: {'state': state});
 
       if (kIsWeb) {
         // Keep OAuth in the same tab so callback can be handled immediately
