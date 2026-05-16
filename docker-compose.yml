@@ -1,0 +1,7 @@
+services:
+  smartgo-fe:
+    container_name: smartgo-fe
+    image: ${IMAGE_NAME:-smartgo-fe}:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"

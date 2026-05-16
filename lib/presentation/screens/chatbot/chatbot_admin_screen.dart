@@ -131,7 +131,7 @@ class _ChatbotAdminScreenState extends State<ChatbotAdminScreen> {
                 ),
                 const SizedBox(height: AppSizes.sm),
                 DropdownButtonFormField<ChatbotKnowledgeType>(
-                  initialValue: _embedType,
+                  value: _embedType,
                   items: ChatbotKnowledgeType.values
                       .map(
                         (item) => DropdownMenuItem(
@@ -983,7 +983,7 @@ class _ChatbotAdminScreenState extends State<ChatbotAdminScreen> {
                   ),
                   const SizedBox(height: AppSizes.md),
                   DropdownButtonFormField<MessageRole>(
-                    initialValue: selectedRole,
+                    value: selectedRole,
                     items: MessageRole.values
                         .map(
                           (item) => DropdownMenuItem(
