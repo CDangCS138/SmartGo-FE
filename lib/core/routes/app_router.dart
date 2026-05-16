@@ -303,7 +303,21 @@ class AppRouter {
       return explicitProvider!;
     }
 
+    final gatewayProvider = params['gateway']?.toLowerCase().trim();
+    if (gatewayProvider == 'momo' || gatewayProvider == 'vnpay') {
+      return gatewayProvider!;
+    }
+
     if (params.keys.any((key) => key.startsWith('vnp_'))) {
+      return 'vnpay';
+    }
+
+    // Some VNPAY callbacks are normalized (without vnp_ prefix) by gateway proxy.
+    if (params.containsKey('responseCode') ||
+        params.containsKey('txnRef') ||
+        params.containsKey('transactionNo') ||
+        params.containsKey('bankCode') ||
+        params.containsKey('payDate')) {
       return 'vnpay';
     }
 
