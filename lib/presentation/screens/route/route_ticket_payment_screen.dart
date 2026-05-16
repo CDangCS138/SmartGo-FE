@@ -796,6 +796,7 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
 
     final selectedTicket = _ticketOptions[_selectedTicketIndex];
     final isMomo = _selectedProvider == _providerMomo;
+    const platform = kIsWeb ? 'web' : 'app';
 
     late VnpayCreatePaymentResponse createResponse;
 
@@ -808,6 +809,7 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
           orderType: 'other',
           bankCode: null,
           locale: 'vn',
+          platform: platform,
           returnUrl: returnUrl,
         );
       }

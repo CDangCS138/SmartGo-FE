@@ -699,7 +699,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen>
               children: [
                 Expanded(
                   child: DropdownButtonFormField<RoutingCriteria>(
-                    value: _selectedCriteria,
+                    initialValue: _selectedCriteria,
                     decoration: const InputDecoration(
                       labelText: 'Tiêu chí tối ưu',
                     ),
@@ -722,7 +722,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen>
                 const SizedBox(width: 12),
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    value: _maxTransfers,
+                    initialValue: _maxTransfers,
                     decoration: const InputDecoration(
                       labelText: 'Chuyển tuyến tối đa',
                     ),

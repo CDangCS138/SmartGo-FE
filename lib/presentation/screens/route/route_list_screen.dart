@@ -137,12 +137,11 @@ class _RouteListScreenState extends State<RouteListScreen> {
       });
       _showSnack('Khong cap nhat duoc yeu thich: $error', isError: true);
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _updatingFavoriteIds.remove(route.id);
+        });
       }
-      setState(() {
-        _updatingFavoriteIds.remove(route.id);
-      });
     }
   }
 

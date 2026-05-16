@@ -108,12 +108,11 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
       });
       _showSnack('Không cập nhật được yêu thích: $error', isError: true);
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isUpdatingFavorite = false;
+        });
       }
-      setState(() {
-        _isUpdatingFavorite = false;
-      });
     }
   }
 

@@ -2889,12 +2889,30 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       child: Row(
         children: [
           DropdownButtonFormField<RoutingCriteria>(
-            value: _selectedCriteria,
+            key: ValueKey(_selectedCriteria),
+            initialValue: _selectedCriteria,
             decoration: const InputDecoration(
               labelText: 'Tiêu chí tối ưu',
               border: OutlineInputBorder(),
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
+            items: RoutingCriteria.values
+                .map(
+                  (criteria) => DropdownMenuItem<RoutingCriteria>(
+                    value: criteria,
+                    child: Text(criteria.displayName),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value == null) {
+                return;
+              }
+              setState(() {
+                _selectedCriteria = value;
+              });
+            },
+          ),
           if (fromLabel != null && toLabel != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6),
