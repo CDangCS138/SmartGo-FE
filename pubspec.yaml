@@ -91,6 +91,7 @@ dependencies:
   flutter_tts: ^4.2.2
   speech_to_text: ^7.3.0
   qr_flutter: ^4.1.0
+  webview_flutter: ^4.0.7
 
   # Code Generation
   freezed_annotation: ^2.4.4

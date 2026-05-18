@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/errors/exceptions.dart';
+import 'package:smartgo/core/constants/app_env.dart';
 import 'package:smartgo/core/routes/app_routes.dart';
 import 'package:smartgo/core/services/storage_service.dart';
 import 'package:smartgo/core/utils/open_external_url.dart';
@@ -12,8 +12,8 @@ import 'package:smartgo/data/datasources/payment_remote_data_source.dart';
 import 'package:smartgo/data/models/payment_request_models.dart';
 import 'package:smartgo/data/models/payment_response_models.dart';
 import 'package:smartgo/domain/entities/route.dart';
+import 'package:smartgo/presentation/screens/route/payment_web_view_screen.dart';
 import 'package:smartgo/presentation/screens/route/route_payment_result_screen.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class RouteTicketPaymentScreen extends StatefulWidget {
   final BusRoute route;
@@ -906,26 +906,14 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
       }
       return;
     }
-
-    try {
-      final opened = await launchUrl(
-        paymentUri,
-        mode: LaunchMode.externalApplication,
-      );
-
-      if (!opened) {
-        throw Exception('Không thể mở trang thanh toán $_selectedProvider');
-      }
-    } on MissingPluginException {
-      final opened = await launchUrl(
-        paymentUri,
-        mode: LaunchMode.platformDefault,
-      );
-
-      if (!opened) {
-        throw Exception('Không thể mở trang thanh toán $_selectedProvider');
-      }
-    }
+    // On mobile, open payment in an in-app WebView so we can intercept
+    // the backend return URL and navigate back into the app automatically.
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PaymentWebViewScreen(
+        initialUrl: paymentUri,
+        provider: _selectedProvider.toLowerCase(),
+      ),
+    ));
   }
 
   String _buildReturnUrl({required bool isMomo}) {
@@ -937,7 +925,10 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
       return '$origin$callbackPath';
     }
 
-    return 'smartgo://payment$callbackPath';
+    final returnPath = isMomo
+        ? '/api/v1/payments/momo/return/app'
+        : '/api/v1/payments/vnpay/return/app';
+    return '${AppEnv.baseUrl}$returnPath';
   }
 }
 

@@ -35,6 +35,12 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
   @override
   void initState() {
     super.initState();
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _openInApp();
+      });
+    }
+
     _verifyWithBackend();
   }
 
