@@ -2888,30 +2888,14 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
       child: Row(
         children: [
-          Expanded(
-            child: DropdownButtonFormField<RoutingCriteria>(
-              initialValue: _selectedCriteria,
-              decoration: const InputDecoration(
-                labelText: 'Tiêu chí tối ưu',
-                border: OutlineInputBorder(),
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
-              items: RoutingCriteria.values.map((criteria) {
-                return DropdownMenuItem<RoutingCriteria>(
-                  value: criteria,
-                  child: Text(criteria.displayName),
-                );
-              }).toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() {
-                    _selectedCriteria = value;
-                  });
-                }
-              },
+          if (fromLabel != null)
+            _buildPointChip(
+              label: fromLabel,
+              badge: 'A',
+              background: const Color(0xFFECFDF5),
+              foreground: const Color(0xFF047857),
+              badgeColor: const Color(0xFF10B981),
             ),
-          ),
           if (fromLabel != null && toLabel != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6),

@@ -230,7 +230,7 @@ class AppRouter {
     ),
   );
   String? _authGuard(BuildContext context, GoRouterState state) {
-    final currentPath = _normalizePath(state.uri.path);
+    final currentPath = _normalizePathFromUri(state.uri);
 
     if (currentPath == '/api/v1/auth/google/callback' ||
         currentPath == AppRoutes.googleAuthCallback) {
@@ -292,6 +292,26 @@ class AppRouter {
     // Support legacy auth links so users do not hit notfound.
     if (normalizedPath == '/auth/login' || normalizedPath == '/signin') {
       return AppRoutes.login;
+    }
+
+    return normalizedPath;
+  }
+
+  String _normalizePathFromUri(Uri uri) {
+    final normalizedPath = _normalizePath(uri.path);
+
+    if (normalizedPath == '/callback' && uri.host == 'auth') {
+      return AppRoutes.googleAuthCallback;
+    }
+
+    if (uri.host == 'payment') {
+      if (normalizedPath.startsWith(AppRoutes.paymentResult)) {
+        return normalizedPath;
+      }
+      if (normalizedPath.startsWith('/payment')) {
+        return normalizedPath;
+      }
+      return '/payment$normalizedPath';
     }
 
     return normalizedPath;

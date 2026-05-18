@@ -30,7 +30,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
   final TextEditingController _routeSearchController = TextEditingController();
 
   Timer? _routeSearchDebounce;
-  RouteDirection _selectedDirection = RouteDirection.both;
   String _routeSearchQuery = '';
   late final UserFavoritesRemoteDataSource _favoritesDataSource;
   Set<String> _favoriteRouteIds = <String>{};
@@ -48,7 +47,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
       context.read<RouteBloc>().add(
             FetchAllRoutesEvent(
               limit: 200,
-              direction: _selectedDirection,
+              direction: RouteDirection.both,
               routeCode: _routeSearchQuery,
             ),
           );
@@ -152,29 +151,10 @@ class _RouteListScreenState extends State<RouteListScreen> {
     return currentScroll >= (maxScroll * 0.9);
   }
 
-  void _onDirectionChanged(RouteDirection? direction) {
-    if (direction == null || direction == _selectedDirection) {
-      return;
-    }
-
-    setState(() {
-      _selectedDirection = direction;
-    });
-
-    context.read<RouteBloc>().add(
-          FetchAllRoutesEvent(
-            page: 1,
-            limit: 200,
-            direction: direction,
-            routeCode: _routeSearchQuery,
-          ),
-        );
-  }
-
   void _refreshRoutes() {
     context.read<RouteBloc>().add(
           RefreshRoutesEvent(
-            direction: _selectedDirection,
+            direction: RouteDirection.both,
             routeCode: _routeSearchQuery,
           ),
         );
@@ -206,7 +186,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
           FetchAllRoutesEvent(
             page: 1,
             limit: 200,
-            direction: _selectedDirection,
+            direction: RouteDirection.both,
             routeCode: _routeSearchQuery,
           ),
         );
@@ -288,34 +268,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
                             fontSize: 18,
                             color: Color(0xFF0F172A),
                           ),
-                        ),
-                      ],
-                    ),
-                    PopupMenuButton<RouteDirection>(
-                      icon: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFF1F5F9)),
-                        ),
-                        child: const Icon(Icons.tune_rounded,
-                            size: 16, color: Color(0xFF64748B)),
-                      ),
-                      onSelected: _onDirectionChanged,
-                      itemBuilder: (context) => const [
-                        PopupMenuItem(
-                          value: RouteDirection.both,
-                          child: Text('Cả hai chiều'),
-                        ),
-                        PopupMenuItem(
-                          value: RouteDirection.forward,
-                          child: Text('Chiều đi'),
-                        ),
-                        PopupMenuItem(
-                          value: RouteDirection.backward,
-                          child: Text('Chiều về'),
                         ),
                       ],
                     ),
@@ -406,8 +358,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
                     final routes = state is RouteLoaded
                         ? state.routes
                         : (state as RouteLoadingMore).currentRoutes;
-                    final totalCount =
-                        state is RouteLoaded ? state.totalCount : routes.length;
 
                     if (routes.isEmpty) {
                       return const Center(
@@ -425,79 +375,29 @@ class _RouteListScreenState extends State<RouteListScreen> {
                       );
                     }
 
-                    return Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 10),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              RichText(
-                                text: TextSpan(
-                                  style: const TextStyle(
-                                      color: Color(0xFF64748B), fontSize: 12),
-                                  children: [
-                                    const TextSpan(text: 'Hiển thị '),
-                                    TextSpan(
-                                      text: '${routes.length}',
-                                      style: const TextStyle(
-                                          color: Color(0xFF0F766E),
-                                          fontWeight: FontWeight.w600),
-                                    ),
-                                    TextSpan(text: '/$totalCount tuyến'),
-                                  ],
-                                ),
-                              ),
-                              Row(
-                                children: [
-                                  Container(
-                                    width: 6,
-                                    height: 6,
-                                    decoration: const BoxDecoration(
-                                        color: Color(0xFF10B981),
-                                        shape: BoxShape.circle),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _getDirectionText(),
-                                    style: const TextStyle(
-                                        color: Color(0xFF0D9488), fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: ListView.builder(
-                            controller: _scrollController,
-                            itemCount: routes.length +
-                                (state is RouteLoadingMore ||
-                                        (state is RouteLoaded &&
-                                            state.hasMorePages)
-                                    ? 1
-                                    : 0),
-                            itemBuilder: (context, index) {
-                              if (index >= routes.length) {
-                                return const Center(
-                                  child: Padding(
-                                    padding: EdgeInsets.all(16.0),
-                                    child: LoadingIndicator(size: 28),
-                                  ),
-                                );
-                              }
+                    return ListView.builder(
+                      controller: _scrollController,
+                      itemCount: routes.length +
+                          (state is RouteLoadingMore ||
+                                  (state is RouteLoaded && state.hasMorePages)
+                              ? 1
+                              : 0),
+                      itemBuilder: (context, index) {
+                        if (index >= routes.length) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(16.0),
+                              child: LoadingIndicator(size: 28),
+                            ),
+                          );
+                        }
 
-                              final route = routes[index];
-                              return Padding(
-                                padding:
-                                    const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                                child: _buildRouteCard(route),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
+                        final route = routes[index];
+                        return Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                          child: _buildRouteCard(route),
+                        );
+                      },
                     );
                   }
 
@@ -510,17 +410,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
         ],
       ),
     );
-  }
-
-  String _getDirectionText() {
-    switch (_selectedDirection) {
-      case RouteDirection.forward:
-        return 'Chiều đi';
-      case RouteDirection.backward:
-        return 'Chiều về';
-      case RouteDirection.both:
-        return 'Cả hai chiều';
-    }
   }
 
   Color _getRouteColor(String code) {
