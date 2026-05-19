@@ -33,7 +33,7 @@ jobs:
         run: flutter pub get
 
       - name: Build web (release)
-        run: flutter build web --release
+        run: flutter build web --release --dart-define=ENCRYPTION_SECRET="${{ secrets.ENCRYPTION_SECRET }}" --dart-define=ENCRYPTION_ALGORITHM="${{ secrets.ENCRYPTION_ALGORITHM || 'aes-256-cbc' }}"
 
       - name: Verify build output
         run: |
