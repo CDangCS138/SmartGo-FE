@@ -83,27 +83,22 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
   }
 
   bool _isCallbackSuccess() {
-    if (_isMomo) {
-      final resultCode = widget.callbackParams['resultCode'];
-      return resultCode == '0';
-    }
-
-    final vnpCode = widget.callbackParams['vnp_ResponseCode'] ??
-        widget.callbackParams['responseCode'];
     final successFlag = widget.callbackParams['success']?.toLowerCase().trim();
     if (successFlag == 'true') {
       return true;
     }
-    return vnpCode == '00';
+
+    final responseCode = widget.callbackParams['responseCode'] ??
+        widget.callbackParams['vnp_ResponseCode'] ??
+        widget.callbackParams['resultCode'];
+
+    return responseCode == '0' || responseCode == '00';
   }
 
   String _callbackCode() {
-    if (_isMomo) {
-      return widget.callbackParams['resultCode'] ?? '-';
-    }
-
-    return widget.callbackParams['vnp_ResponseCode'] ??
-        widget.callbackParams['responseCode'] ??
+    return widget.callbackParams['responseCode'] ??
+        widget.callbackParams['vnp_ResponseCode'] ??
+        widget.callbackParams['resultCode'] ??
         '-';
   }
 
@@ -125,22 +120,16 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
   }
 
   String _callbackTxnRef() {
-    if (_isMomo) {
-      return widget.callbackParams['orderId'] ?? '-';
-    }
-
-    return widget.callbackParams['vnp_TxnRef'] ??
-        widget.callbackParams['txnRef'] ??
+    return widget.callbackParams['txnRef'] ??
+        widget.callbackParams['vnp_TxnRef'] ??
+        widget.callbackParams['orderId'] ??
         '-';
   }
 
   String _callbackTransactionNo() {
-    if (_isMomo) {
-      return widget.callbackParams['transId'] ?? '-';
-    }
-
-    return widget.callbackParams['vnp_TransactionNo'] ??
-        widget.callbackParams['transactionNo'] ??
+    return widget.callbackParams['transactionNo'] ??
+        widget.callbackParams['vnp_TransactionNo'] ??
+        widget.callbackParams['transId'] ??
         '-';
   }
 
