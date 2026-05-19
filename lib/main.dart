@@ -26,10 +26,12 @@ void main() async {
     AppLogger.info('SharedPreferences initialized');
     await configureDependencies();
     AppLogger.info('Dependency injection configured');
-    final preloadService = getIt<PreloadService>();
-    await preloadService.preloadAll();
-    AppLogger.info('Initial route and station preload triggered');
     runApp(MyApp(storageService: storageService));
+    final preloadService = getIt<PreloadService>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      preloadService.preloadAll();
+      AppLogger.info('Initial route and station preload triggered');
+    });
   } catch (e, stackTrace) {
     AppLogger.error('Failed to initialize app', e, stackTrace);
     runApp(const ErrorApp());

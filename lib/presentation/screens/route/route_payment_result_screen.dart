@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:smartgo/core/utils/open_external_url.dart';
 import 'package:smartgo/data/datasources/payment_remote_data_source.dart';
 import 'package:smartgo/data/models/payment_response_models.dart';
@@ -252,6 +253,11 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
 
   Widget _buildResultContent(ColorScheme scheme) {
     final returnResponse = _returnResponse!;
+    final isSuccess = returnResponse.success;
+    final amount = _resolveGatewayAmount(returnResponse);
+    final ticketCode = _resolveTicketCode(returnResponse);
+    final bankLabel = _resolveBankLabel(returnResponse);
+    final payTimeText = _formatPayDate(returnResponse.payDate);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -262,12 +268,12 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: returnResponse.success
+              color: isSuccess
                   ? Colors.green.withValues(alpha: 0.08)
                   : Colors.red.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: returnResponse.success
+                color: isSuccess
                     ? Colors.green.withValues(alpha: 0.3)
                     : Colors.red.withValues(alpha: 0.3),
               ),
@@ -275,13 +281,13 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
             child: Column(
               children: [
                 Icon(
-                  returnResponse.success ? Icons.check_circle : Icons.error,
-                  color: returnResponse.success ? Colors.green : Colors.red,
+                  isSuccess ? Icons.check_circle : Icons.error,
+                  color: isSuccess ? Colors.green : Colors.red,
                   size: 64,
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  returnResponse.success
+                  isSuccess
                       ? 'Thanh toán thành công'
                       : 'Thanh toán chưa thành công',
                   style: const TextStyle(
@@ -303,17 +309,31 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
             ),
           ),
           const SizedBox(height: 16),
+          if (isSuccess) ...[
+            _buildTicketReceiptCard(
+              returnResponse: returnResponse,
+              amount: amount,
+              ticketCode: ticketCode,
+              payTimeText: payTimeText,
+              bankLabel: bankLabel,
+            ),
+            const SizedBox(height: 16),
+          ],
           _buildDetailCard(
             context,
             title: 'Chi tiết giao dịch',
             rows: [
+              if (ticketCode != null) _detailRow('Mã vé', ticketCode),
               _detailRow('Mã giao dịch', returnResponse.txnRef),
               _detailRow(
-                  'Mã ${widget.paymentProvider}', returnResponse.transactionNo),
-              _detailRow('Số tiền', _formatVnd(widget.totalAmount)),
-              _detailRow('Mô tả', returnResponse.orderInfo),
-              _detailRow('Kênh thanh toán', widget.selectedBank),
-              _detailRow('Thời gian', returnResponse.payDate),
+                'Mã ${widget.paymentProvider}',
+                returnResponse.transactionNo,
+              ),
+              _detailRow('Số tiền', _formatVnd(amount)),
+              if (returnResponse.orderInfo.isNotEmpty)
+                _detailRow('Mô tả', returnResponse.orderInfo),
+              _detailRow('Kênh thanh toán', bankLabel),
+              _detailRow('Thời gian', payTimeText),
               _detailRow('Mã phản hồi', returnResponse.responseCode),
             ],
           ),
@@ -402,6 +422,326 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildTicketReceiptCard({
+    required VnpayReturnResponse returnResponse,
+    required int amount,
+    required String? ticketCode,
+    required String payTimeText,
+    required String bankLabel,
+  }) {
+    final unitAmount = widget.quantity > 0 ? amount ~/ widget.quantity : amount;
+    final routeTitle = 'Tuyến ${widget.route.routeCode}';
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x120F172A),
+            blurRadius: 18,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              children: [
+                const Text(
+                  'SMARTGO PAY',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.8,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'VÉ ${widget.ticketLabel.toUpperCase()}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '$routeTitle • ${widget.route.routeName}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _buildDottedDivider(),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildQrBox(ticketCode),
+                const SizedBox(height: 10),
+                if (ticketCode != null)
+                  Column(
+                    children: [
+                      const Text(
+                        'Mã vé điện tử',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      SelectableText(
+                        ticketCode,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ],
+                  ),
+                const SizedBox(height: 14),
+                _buildTicketInfoRow('Số serial', returnResponse.txnRef),
+                _buildTicketInfoRow(
+                  'Mã giao dịch cổng',
+                  returnResponse.transactionNo,
+                ),
+                _buildTicketInfoRow('Kênh thanh toán', bankLabel),
+                _buildTicketInfoRow('Thời gian', payTimeText),
+                _buildTicketInfoRow('Số lượng', '${widget.quantity} vé'),
+                _buildTicketInfoRow('Giá vé', _formatVnd(unitAmount)),
+                const SizedBox(height: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDFA),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF99F6E4)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.receipt_long_outlined,
+                          color: Color(0xFF0F766E), size: 18),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Tổng tiền',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF0F766E),
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        _formatVnd(amount),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F766E),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Giữ vé để xuất trình khi kiểm soát lên xe.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQrBox(String? ticketCode) {
+    if (ticketCode == null) {
+      return Container(
+        height: 220,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        alignment: Alignment.center,
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.qr_code_2, size: 56, color: Color(0xFFCBD5E1)),
+            SizedBox(height: 8),
+            Text(
+              'Chưa có mã vé',
+              style: TextStyle(color: Color(0xFF94A3B8)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      alignment: Alignment.center,
+      child: QrImageView(
+        data: ticketCode,
+        version: QrVersions.auto,
+        size: 220,
+        backgroundColor: Colors.white,
+      ),
+    );
+  }
+
+  Widget _buildTicketInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              value.isEmpty ? '-' : value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDottedDivider() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const dashWidth = 6.0;
+        final dashCount = (constraints.maxWidth / (dashWidth * 1.8)).floor();
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(dashCount, (_) {
+            return const SizedBox(
+              width: 6,
+              height: 1,
+              child: DecoratedBox(
+                decoration: BoxDecoration(color: Color(0xFFE2E8F0)),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+
+  int _resolveGatewayAmount(VnpayReturnResponse response) {
+    final amount = response.amount;
+    if (amount <= 0) {
+      return widget.totalAmount;
+    }
+
+    final isVnpay =
+        widget.paymentProvider == RoutePaymentResultScreen.providerVnpay;
+    if (isVnpay && widget.totalAmount > 0) {
+      final scaled = amount ~/ 100;
+      if (amount >= widget.totalAmount * 100 && amount % 100 == 0) {
+        return scaled;
+      }
+    }
+
+    return amount;
+  }
+
+  String _resolveBankLabel(VnpayReturnResponse response) {
+    if (response.bankCode.isNotEmpty) {
+      return response.bankCode;
+    }
+    return widget.selectedBank;
+  }
+
+  String _formatPayDate(String raw) {
+    if (raw.isEmpty) {
+      return '-';
+    }
+
+    try {
+      if (raw.length == 14) {
+        final parsed = DateFormat('yyyyMMddHHmmss').parse(raw, true).toLocal();
+        return DateFormat('HH:mm dd/MM/yyyy').format(parsed);
+      }
+      final parsed = DateTime.tryParse(raw);
+      if (parsed != null) {
+        return DateFormat('HH:mm dd/MM/yyyy').format(parsed.toLocal());
+      }
+    } catch (_) {
+      return raw;
+    }
+
+    return raw;
+  }
+
+  String? _resolveTicketCode(VnpayReturnResponse response) {
+    return _firstNonEmpty([
+      response.qrData,
+      response.transactionNo,
+      response.txnRef,
+    ]);
+  }
+
+  String? _firstNonEmpty(Iterable<String?> values) {
+    for (final value in values) {
+      final trimmed = value?.trim();
+      if (trimmed != null && trimmed.isNotEmpty && trimmed != '-') {
+        return trimmed;
+      }
+    }
+    return null;
   }
 
   Future<void> _openPaymentPageAgain() async {

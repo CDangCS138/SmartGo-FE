@@ -23,7 +23,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final http.Client _client = http.Client();
+  final http.Client _client = getIt<http.Client>();
   late final UsersRemoteDataSource _usersDataSource;
 
   Map<String, dynamic>? _rawUser;
@@ -43,7 +43,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
-    _client.close();
     super.dispose();
   }
 

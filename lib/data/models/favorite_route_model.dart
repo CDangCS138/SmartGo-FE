@@ -158,7 +158,10 @@ class FavoriteRoutesResponse extends Equatable {
     Map<String, dynamic> payload = json;
     if (json['data'] is Map) {
       final inner = FavoriteRouteModel._asMap(json['data']);
-      if (inner != null && inner['data'] is List) {
+      if (inner != null &&
+          (inner['data'] is List ||
+              inner['items'] is List ||
+              inner['favorites'] is List)) {
         payload = inner;
       }
     }

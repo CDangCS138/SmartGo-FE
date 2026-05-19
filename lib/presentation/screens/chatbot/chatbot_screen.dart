@@ -35,7 +35,7 @@ class ChatbotScreen extends StatefulWidget {
 class _ChatbotScreenState extends State<ChatbotScreen> {
   static const int _maxSavedConversations = 20;
 
-  final http.Client _client = http.Client();
+  final http.Client _client = getIt<http.Client>();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -66,7 +66,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     _stopChatStream();
     _messageController.dispose();
     _scrollController.dispose();
-    _client.close();
     super.dispose();
   }
 

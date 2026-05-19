@@ -12,7 +12,8 @@ class UsersPageResponse {
   });
 
   factory UsersPageResponse.fromJson(Map<String, dynamic> json) {
-    final rawData = json['data'];
+    final payload = _unwrapDataMap(json);
+    final rawData = _extractUsersList(payload);
     final users = <AdminUserModel>[];
 
     if (rawData is List) {
@@ -24,12 +25,47 @@ class UsersPageResponse {
     }
 
     return UsersPageResponse(
-      total: (json['total'] as num?)?.toInt() ?? users.length,
-      page: (json['page'] as num?)?.toInt() ?? 1,
-      limit: (json['limit'] as num?)?.toInt() ?? 10,
+      total: _readInt(payload['total'] ?? payload['count'], users.length),
+      page: _readInt(payload['page'], 1),
+      limit: _readInt(payload['limit'], 10),
       data: users,
     );
   }
+}
+
+Map<String, dynamic> _unwrapDataMap(Map<String, dynamic> json) {
+  final data = json['data'];
+  if (data is Map<String, dynamic>) {
+    return data;
+  }
+  return json;
+}
+
+dynamic _extractUsersList(Map<String, dynamic> payload) {
+  dynamic raw = payload['data'] ??
+      payload['items'] ??
+      payload['users'] ??
+      payload['results'];
+
+  if (raw is Map) {
+    final map = Map<String, dynamic>.from(raw);
+    raw = map['data'] ?? map['items'] ?? map['users'] ?? map['results'];
+  }
+
+  return raw;
+}
+
+int _readInt(dynamic raw, int fallback) {
+  if (raw == null) {
+    return fallback;
+  }
+  if (raw is int) {
+    return raw;
+  }
+  if (raw is num) {
+    return raw.toInt();
+  }
+  return int.tryParse(raw.toString()) ?? fallback;
 }
 
 class AdminUserModel {

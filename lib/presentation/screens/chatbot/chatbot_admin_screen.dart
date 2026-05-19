@@ -23,7 +23,7 @@ class ChatbotAdminScreen extends StatefulWidget {
 }
 
 class _ChatbotAdminScreenState extends State<ChatbotAdminScreen> {
-  final http.Client _client = http.Client();
+  final http.Client _client = getIt<http.Client>();
 
   late final ChatbotRemoteDataSource _chatbotDataSource;
   late final MessageRemoteDataSource _messageDataSource;
@@ -71,7 +71,6 @@ class _ChatbotAdminScreenState extends State<ChatbotAdminScreen> {
     _conversationIdController.dispose();
     _searchController.dispose();
     _messageIdController.dispose();
-    _client.close();
     super.dispose();
   }
 

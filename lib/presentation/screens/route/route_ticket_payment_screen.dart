@@ -834,18 +834,7 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
           buildRequest(returnUrl: requestedReturnUrl),
         );
       } on BadRequestException {
-        // Backend chưa hỗ trợ returnUrl, thử lại với payload cũ.
         createResponse = await createPayment(buildRequest());
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Backend chưa hỗ trợ returnUrl, tạm dùng URL mặc định.',
-              ),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
       }
 
       final paymentUri = Uri.tryParse(createResponse.paymentUrl);

@@ -96,7 +96,10 @@ class MessageListResponse {
 
   factory MessageListResponse.fromJson(Map<String, dynamic> json) {
     final dataMap = _unwrapData(json);
-    final rawList = dataMap['data'];
+    final rawList = dataMap['data'] ??
+        dataMap['items'] ??
+        dataMap['results'] ??
+        dataMap['messages'];
 
     final list = <MessageModel>[];
     if (rawList is List) {
@@ -162,7 +165,10 @@ Map<String, dynamic> _unwrapData(Map<String, dynamic> json) {
     final hasPaging = rawData.containsKey('total') ||
         rawData.containsKey('page') ||
         rawData.containsKey('limit') ||
-        rawData.containsKey('data');
+        rawData.containsKey('data') ||
+        rawData.containsKey('items') ||
+        rawData.containsKey('results') ||
+        rawData.containsKey('messages');
     if (hasPaging) {
       return rawData;
     }
