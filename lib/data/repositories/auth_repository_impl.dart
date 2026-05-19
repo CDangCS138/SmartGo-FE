@@ -51,13 +51,20 @@ class AuthRepositoryImpl implements AuthRepository {
         await storageService.saveRefreshToken(response.refreshToken!);
       }
 
-      // Fetch and save user data
-      try {
-        final user = await remoteDataSource.getCurrentUser();
-        _cachedUser = user;
-        await storageService.saveUserData(json.encode(user.toJson()));
-      } catch (e) {
-        // Continue even if fetching user data fails
+      if (response.user != null) {
+        _cachedUser = response.user;
+        await storageService.saveUserData(json.encode(response.user!.toJson()));
+      }
+
+      // Fetch and save user data if backend did not include it
+      if (response.user == null) {
+        try {
+          final user = await remoteDataSource.getCurrentUser();
+          _cachedUser = user;
+          await storageService.saveUserData(json.encode(user.toJson()));
+        } catch (e) {
+          // Continue even if fetching user data fails
+        }
       }
 
       return Right(AuthTokens(

@@ -88,8 +88,12 @@ class GetMeResponse {
   factory GetMeResponse.fromJson(Map<String, dynamic> json) {
     final data = json['data'] as Map<String, dynamic>? ?? json;
 
+    final userJson = data['user'] is Map<String, dynamic>
+        ? data['user'] as Map<String, dynamic>
+        : data;
+
     return GetMeResponse(
-      user: UserModel.fromJson(data),
+      user: UserModel.fromJson(userJson),
     );
   }
 }

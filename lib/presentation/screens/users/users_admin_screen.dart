@@ -22,7 +22,7 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
   static const Color _gold = Color(0xFFC6A86E);
   static const Color _fog = Color(0xFFF7FAFF);
 
-  final http.Client _client = http.Client();
+  final http.Client _client = getIt<http.Client>();
   late final UsersRemoteDataSource _usersDataSource;
 
   List<AdminUserModel> _users = const [];
@@ -42,7 +42,6 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
 
   @override
   void dispose() {
-    _client.close();
     super.dispose();
   }
 

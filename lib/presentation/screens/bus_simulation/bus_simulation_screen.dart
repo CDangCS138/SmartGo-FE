@@ -46,7 +46,7 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
     with SingleTickerProviderStateMixin {
   static const LatLng _defaultMapCenter = LatLng(10.8231, 106.6297);
 
-  final http.Client _client = http.Client();
+  final http.Client _client = getIt<http.Client>();
   final MapController _mapController = MapController();
 
   late final StorageService _storageService;
@@ -156,7 +156,6 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
     _tripsSearchController.dispose();
     _stationEtaSearchController.dispose();
 
-    _client.close();
     super.dispose();
   }
 

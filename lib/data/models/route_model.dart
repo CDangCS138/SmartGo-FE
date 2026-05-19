@@ -150,10 +150,13 @@ class RouteListResponse {
     required this.data,
   });
   factory RouteListResponse.fromJson(Map<String, dynamic> json) {
+    final payload = _unwrapDataMap(json);
+
     return RouteListResponse(
-      statusCode: json['statusCode'] as int,
-      message: json['message'] as String,
-      data: RouteListData.fromJson(json['data'] as Map<String, dynamic>),
+      statusCode:
+          _readInt(json['statusCode'] ?? payload['statusCode'], fallback: 200),
+      message: _readString(json['message'] ?? payload['message']),
+      data: RouteListData.fromJson(payload),
     );
   }
 }
@@ -170,13 +173,13 @@ class RouteListData {
     required this.routes,
   });
   factory RouteListData.fromJson(Map<String, dynamic> json) {
+    final routes = _extractRoutes(json);
+
     return RouteListData(
-      total: json['total'] as int,
-      page: json['page'] as int,
-      limit: json['limit'] as int,
-      routes: (json['routes'] as List<dynamic>)
-          .map((e) => RouteModel.fromJson(e as Map<String, dynamic>))
-          .toList(),
+      total: _readInt(json['total'] ?? json['count'], fallback: routes.length),
+      page: _readInt(json['page'], fallback: 1),
+      limit: _readInt(json['limit'], fallback: routes.length),
+      routes: routes,
     );
   }
 }
@@ -191,14 +194,13 @@ class RouteResponse {
     required this.data,
   });
   factory RouteResponse.fromJson(Map<String, dynamic> json) {
-    final dataField = json['data'] as Map<String, dynamic>;
+    final payload = _unwrapDataMap(json);
     // API may return data.route (getById) or data directly
-    final routeJson = dataField.containsKey('route')
-        ? dataField['route'] as Map<String, dynamic>
-        : dataField;
+    final routeJson = _asMap(payload['route']) ?? payload;
     return RouteResponse(
-      statusCode: json['statusCode'] as int,
-      message: json['message'] as String,
+      statusCode:
+          _readInt(json['statusCode'] ?? payload['statusCode'], fallback: 200),
+      message: _readString(json['message'] ?? payload['message']),
       data: RouteModel.fromJson(routeJson),
     );
   }
@@ -214,13 +216,71 @@ class RouteSummaryResponse {
   });
 
   factory RouteSummaryResponse.fromJson(Map<String, dynamic> json) {
-    final payload = json['data'] is Map<String, dynamic>
-        ? json['data'] as Map<String, dynamic>
-        : json;
+    final payload = _unwrapDataMap(json);
 
     return RouteSummaryResponse(
       routeCount: (payload['routeCount'] as num?)?.toInt() ?? 0,
       stationCount: (payload['stationCount'] as num?)?.toInt() ?? 0,
     );
   }
+}
+
+Map<String, dynamic> _unwrapDataMap(Map<String, dynamic> json) {
+  final data = json['data'];
+  if (data is Map<String, dynamic>) {
+    return data;
+  }
+  return json;
+}
+
+Map<String, dynamic>? _asMap(dynamic raw) {
+  if (raw is Map<String, dynamic>) {
+    return raw;
+  }
+  if (raw is Map) {
+    return Map<String, dynamic>.from(raw);
+  }
+  return null;
+}
+
+String _readString(dynamic raw, {String fallback = ''}) {
+  if (raw == null) {
+    return fallback;
+  }
+  if (raw is String) {
+    return raw;
+  }
+  return raw.toString();
+}
+
+int _readInt(dynamic raw, {int fallback = 0}) {
+  if (raw == null) {
+    return fallback;
+  }
+  if (raw is int) {
+    return raw;
+  }
+  if (raw is num) {
+    return raw.toInt();
+  }
+  return int.tryParse(raw.toString()) ?? fallback;
+}
+
+List<RouteModel> _extractRoutes(Map<String, dynamic> json) {
+  dynamic raw =
+      json['routes'] ?? json['items'] ?? json['results'] ?? json['data'];
+
+  if (raw is Map) {
+    final map = Map<String, dynamic>.from(raw);
+    raw = map['routes'] ?? map['items'] ?? map['results'] ?? map['data'];
+  }
+
+  if (raw is! List) {
+    return const <RouteModel>[];
+  }
+
+  return raw
+      .whereType<Map<String, dynamic>>()
+      .map(RouteModel.fromJson)
+      .toList();
 }

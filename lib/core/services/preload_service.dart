@@ -48,9 +48,8 @@ class PreloadService {
 
   /// Preload all necessary data
   Future<void> preloadAll() async {
-    await Future.wait([
-      preloadRoutes(),
-      preloadStations(),
-    ]);
+    await preloadRoutes();
+    await Future<void>.delayed(const Duration(seconds: 2));
+    await preloadStations();
   }
 }

@@ -77,16 +77,16 @@ class StationListResponse {
     this.limit,
   });
   factory StationListResponse.fromJson(Map<String, dynamic> json) {
+    final payload = _unwrapDataMap(json);
+    final stations = _extractStations(payload);
     return StationListResponse(
-      statusCode: json['statusCode'] as int,
-      message: json['message'] as String,
-      data: (json['data'] as List)
-          .map((station) =>
-              StationModel.fromJson(station as Map<String, dynamic>))
-          .toList(),
-      total: json['total'] as int?,
-      page: json['page'] as int?,
-      limit: json['limit'] as int?,
+      statusCode:
+          _readInt(json['statusCode'] ?? payload['statusCode'], fallback: 200),
+      message: _readString(json['message'] ?? payload['message']),
+      data: stations,
+      total: _readOptionalInt(payload['total'] ?? payload['count']),
+      page: _readOptionalInt(payload['page']),
+      limit: _readOptionalInt(payload['limit']),
     );
   }
 }
@@ -101,10 +101,86 @@ class StationResponse {
     required this.data,
   });
   factory StationResponse.fromJson(Map<String, dynamic> json) {
+    final payload = _unwrapDataMap(json);
+    final stationJson = _asMap(payload['station']) ?? payload;
     return StationResponse(
-      statusCode: json['statusCode'] as int,
-      message: json['message'] as String,
-      data: StationModel.fromJson(json['data'] as Map<String, dynamic>),
+      statusCode:
+          _readInt(json['statusCode'] ?? payload['statusCode'], fallback: 200),
+      message: _readString(json['message'] ?? payload['message']),
+      data: StationModel.fromJson(stationJson),
     );
   }
+}
+
+Map<String, dynamic> _unwrapDataMap(Map<String, dynamic> json) {
+  final data = json['data'];
+  if (data is Map<String, dynamic>) {
+    return data;
+  }
+  return json;
+}
+
+Map<String, dynamic>? _asMap(dynamic raw) {
+  if (raw is Map<String, dynamic>) {
+    return raw;
+  }
+  if (raw is Map) {
+    return Map<String, dynamic>.from(raw);
+  }
+  return null;
+}
+
+String _readString(dynamic raw, {String fallback = ''}) {
+  if (raw == null) {
+    return fallback;
+  }
+  if (raw is String) {
+    return raw;
+  }
+  return raw.toString();
+}
+
+int _readInt(dynamic raw, {int fallback = 0}) {
+  if (raw == null) {
+    return fallback;
+  }
+  if (raw is int) {
+    return raw;
+  }
+  if (raw is num) {
+    return raw.toInt();
+  }
+  return int.tryParse(raw.toString()) ?? fallback;
+}
+
+int? _readOptionalInt(dynamic raw) {
+  if (raw == null) {
+    return null;
+  }
+  if (raw is int) {
+    return raw;
+  }
+  if (raw is num) {
+    return raw.toInt();
+  }
+  return int.tryParse(raw.toString());
+}
+
+List<StationModel> _extractStations(Map<String, dynamic> json) {
+  dynamic raw =
+      json['stations'] ?? json['items'] ?? json['results'] ?? json['data'];
+
+  if (raw is Map) {
+    final map = Map<String, dynamic>.from(raw);
+    raw = map['stations'] ?? map['items'] ?? map['results'] ?? map['data'];
+  }
+
+  if (raw is! List) {
+    return const <StationModel>[];
+  }
+
+  return raw
+      .whereType<Map<String, dynamic>>()
+      .map(StationModel.fromJson)
+      .toList();
 }
