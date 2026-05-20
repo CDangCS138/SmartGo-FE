@@ -13,6 +13,8 @@ abstract class RouteRemoteDataSource {
     int limit = 200,
     RouteDirection? direction,
     String search = '',
+    String? routeCode,
+    String? stationCode,
   });
 
   Future<RouteSummaryResponse> getRouteSummary();
@@ -40,9 +42,13 @@ class RouteRemoteDataSourceImpl implements RouteRemoteDataSource {
     int limit = 200,
     RouteDirection? direction,
     String search = '',
+    String? routeCode,
+    String? stationCode,
   }) async {
     try {
       final normalizedSearch = search.trim();
+      final normalizedRouteCode = routeCode?.trim() ?? '';
+      final normalizedStationCode = stationCode?.trim() ?? '';
       final queryParams = <String, String>{
         'page': page.toString(),
         'limit': limit.toString(),
@@ -53,7 +59,17 @@ class RouteRemoteDataSourceImpl implements RouteRemoteDataSource {
         queryParams['search'] = normalizedSearch;
       }
 
+      if (normalizedRouteCode.isNotEmpty) {
+        queryParams['routeCode'] = normalizedRouteCode;
+      }
+
+      if (normalizedStationCode.isNotEmpty) {
+        queryParams['stationCode'] = normalizedStationCode;
+      }
+
       if (normalizedSearch.isEmpty &&
+          normalizedRouteCode.isEmpty &&
+          normalizedStationCode.isEmpty &&
           direction != null &&
           direction != RouteDirection.both) {
         queryParams['direction'] = direction.toApiString();

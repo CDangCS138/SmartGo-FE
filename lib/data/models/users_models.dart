@@ -1,3 +1,6 @@
+import 'route_model.dart';
+import 'station_model.dart';
+
 class UsersPageResponse {
   final int total;
   final int page;
@@ -80,6 +83,8 @@ class AdminUserModel {
   final String? avatar;
   final List<String> favoriteRouteIds;
   final List<String> favoriteStationIds;
+  final List<RouteModel> favoriteRoutes;
+  final List<StationModel> favoriteStations;
 
   const AdminUserModel({
     required this.id,
@@ -93,6 +98,8 @@ class AdminUserModel {
     this.updatedBy,
     this.favoriteRouteIds = const [],
     this.favoriteStationIds = const [],
+    this.favoriteRoutes = const [],
+    this.favoriteStations = const [],
   });
 
   factory AdminUserModel.fromJson(Map<String, dynamic> json) {
@@ -108,6 +115,8 @@ class AdminUserModel {
       avatar: json['avatar']?.toString(),
       favoriteRouteIds: _parseStringList(json['favoriteRouteIds']),
       favoriteStationIds: _parseStringList(json['favoriteStationIds']),
+      favoriteRoutes: _parseRoutes(json['favoriteRoutes']),
+      favoriteStations: _parseStations(json['favoriteStations']),
     );
   }
 
@@ -125,5 +134,37 @@ class AdminUserModel {
       return raw.map((item) => item.toString()).toList();
     }
     return const <String>[];
+  }
+
+  static List<RouteModel> _parseRoutes(dynamic raw) {
+    if (raw is! List) {
+      return const <RouteModel>[];
+    }
+
+    final routes = <RouteModel>[];
+    for (final item in raw) {
+      if (item is Map<String, dynamic>) {
+        routes.add(RouteModel.fromJson(item));
+      } else if (item is Map) {
+        routes.add(RouteModel.fromJson(Map<String, dynamic>.from(item)));
+      }
+    }
+    return routes;
+  }
+
+  static List<StationModel> _parseStations(dynamic raw) {
+    if (raw is! List) {
+      return const <StationModel>[];
+    }
+
+    final stations = <StationModel>[];
+    for (final item in raw) {
+      if (item is Map<String, dynamic>) {
+        stations.add(StationModel.fromJson(item));
+      } else if (item is Map) {
+        stations.add(StationModel.fromJson(Map<String, dynamic>.from(item)));
+      }
+    }
+    return stations;
   }
 }

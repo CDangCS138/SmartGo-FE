@@ -5,7 +5,9 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:smartgo/core/utils/open_external_url.dart';
+import 'package:smartgo/data/datasources/bills_remote_data_source.dart';
 import 'package:smartgo/data/datasources/payment_remote_data_source.dart';
+import 'package:smartgo/data/models/bill_models.dart';
 import 'package:smartgo/data/models/payment_response_models.dart';
 import 'package:smartgo/domain/entities/route.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -22,6 +24,7 @@ class RoutePaymentResultScreen extends StatefulWidget {
   final VnpayCreatePaymentResponse createResponse;
   final String accessToken;
   final String paymentProvider;
+  final String? billId;
 
   const RoutePaymentResultScreen({
     super.key,
@@ -33,6 +36,7 @@ class RoutePaymentResultScreen extends StatefulWidget {
     required this.createResponse,
     required this.accessToken,
     required this.paymentProvider,
+    this.billId,
   });
 
   @override
@@ -43,17 +47,22 @@ class RoutePaymentResultScreen extends StatefulWidget {
 class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
   final http.Client _client = http.Client();
   late final PaymentRemoteDataSource _paymentRemoteDataSource;
+  late final BillsRemoteDataSource _billsRemoteDataSource;
   final NumberFormat _currencyFormat = NumberFormat('#,###', 'vi_VN');
 
   bool _isLoading = false;
+  bool _isFetchingBill = false;
   bool _hasCheckedStatus = false;
+  bool _hasUpdatedBillStatus = false;
   VnpayReturnResponse? _returnResponse;
+  BillModel? _bill;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
     _paymentRemoteDataSource = PaymentRemoteDataSourceImpl(client: _client);
+    _billsRemoteDataSource = BillsRemoteDataSource(client: _client);
   }
 
   @override
@@ -84,6 +93,8 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
         _returnResponse = returnResult;
         _isLoading = false;
       });
+
+      await _syncBillDetails(returnResult);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -91,6 +102,57 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
             'Chưa nhận được kết quả thanh toán. Vui lòng thử lại sau ít giây.';
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _syncBillDetails(VnpayReturnResponse returnResult) async {
+    final billId = widget.billId;
+    if (billId == null || billId.isEmpty) {
+      return;
+    }
+
+    if (returnResult.success && !_hasUpdatedBillStatus) {
+      _hasUpdatedBillStatus = true;
+      try {
+        await _billsRemoteDataSource.updateBillStatus(
+          billId,
+          status: 'PAID',
+          accessToken: widget.accessToken,
+        );
+      } catch (_) {
+        // Ignore update errors; tickets may already be issued.
+      }
+    }
+
+    await _fetchBill(billId);
+  }
+
+  Future<void> _fetchBill(String billId) async {
+    if (_isFetchingBill) {
+      return;
+    }
+
+    setState(() {
+      _isFetchingBill = true;
+    });
+
+    try {
+      final bill = await _billsRemoteDataSource.getBillById(
+        billId,
+        accessToken: widget.accessToken,
+      );
+      if (!mounted) return;
+      setState(() {
+        _bill = bill;
+      });
+    } catch (_) {
+      // Ignore fetch errors to keep showing payment info.
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFetchingBill = false;
+        });
+      }
     }
   }
 
@@ -255,7 +317,9 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
     final returnResponse = _returnResponse!;
     final isSuccess = returnResponse.success;
     final amount = _resolveGatewayAmount(returnResponse);
-    final ticketCode = _resolveTicketCode(returnResponse);
+    final tickets = _bill?.tickets ?? const <TicketModel>[];
+    final primaryTicket = tickets.isNotEmpty ? tickets.first : null;
+    final ticketCode = primaryTicket?.ticketCode;
     final bankLabel = _resolveBankLabel(returnResponse);
     final payTimeText = _formatPayDate(returnResponse.payDate);
 
@@ -310,13 +374,17 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
           ),
           const SizedBox(height: 16),
           if (isSuccess) ...[
-            _buildTicketReceiptCard(
-              returnResponse: returnResponse,
-              amount: amount,
-              ticketCode: ticketCode,
-              payTimeText: payTimeText,
-              bankLabel: bankLabel,
-            ),
+            if (_isFetchingBill && primaryTicket == null)
+              const Center(child: CircularProgressIndicator())
+            else
+              _buildTicketReceiptCard(
+                returnResponse: returnResponse,
+                amount: amount,
+                ticket: primaryTicket,
+                tickets: tickets,
+                payTimeText: payTimeText,
+                bankLabel: bankLabel,
+              ),
             const SizedBox(height: 16),
           ],
           _buildDetailCard(
@@ -427,12 +495,14 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
   Widget _buildTicketReceiptCard({
     required VnpayReturnResponse returnResponse,
     required int amount,
-    required String? ticketCode,
+    required TicketModel? ticket,
+    required List<TicketModel> tickets,
     required String payTimeText,
     required String bankLabel,
   }) {
     final unitAmount = widget.quantity > 0 ? amount ~/ widget.quantity : amount;
     final routeTitle = 'Tuyến ${widget.route.routeCode}';
+    final ticketCode = ticket?.ticketCode;
 
     return Container(
       clipBehavior: Clip.antiAlias,
@@ -500,7 +570,7 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _buildQrBox(ticketCode),
+                _buildQrBox(ticket),
                 const SizedBox(height: 10),
                 if (ticketCode != null)
                   Column(
@@ -525,6 +595,33 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
                       ),
                     ],
                   ),
+                if (tickets.length > 1) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Các vé còn lại',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ...tickets.skip(1).map(
+                        (item) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            item.ticketCode,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                        ),
+                      ),
+                ],
                 const SizedBox(height: 14),
                 _buildTicketInfoRow('Số serial', returnResponse.txnRef),
                 _buildTicketInfoRow(
@@ -586,8 +683,8 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
     );
   }
 
-  Widget _buildQrBox(String? ticketCode) {
-    if (ticketCode == null) {
+  Widget _buildQrBox(TicketModel? ticket) {
+    if (ticket == null) {
       return Container(
         height: 220,
         decoration: BoxDecoration(
@@ -610,6 +707,50 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
       );
     }
 
+    final qrImageUrl = ticket.qrImageUrl?.trim();
+    if (qrImageUrl != null && qrImageUrl.isNotEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        alignment: Alignment.center,
+        child: Image.network(
+          qrImageUrl,
+          width: 220,
+          height: 220,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            return const Text(
+              'Không tải được mã QR',
+              style: TextStyle(color: Color(0xFF94A3B8)),
+            );
+          },
+        ),
+      );
+    }
+
+    final qrPayload = ticket.qrPayload?.trim();
+    if (qrPayload != null && qrPayload.isNotEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        alignment: Alignment.center,
+        child: QrImageView(
+          data: qrPayload,
+          version: QrVersions.auto,
+          size: 220,
+          backgroundColor: Colors.white,
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -618,11 +759,9 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       alignment: Alignment.center,
-      child: QrImageView(
-        data: ticketCode,
-        version: QrVersions.auto,
-        size: 220,
-        backgroundColor: Colors.white,
+      child: const Text(
+        'Chưa có mã QR',
+        style: TextStyle(color: Color(0xFF94A3B8)),
       ),
     );
   }
@@ -724,24 +863,6 @@ class _RoutePaymentResultScreenState extends State<RoutePaymentResultScreen> {
     }
 
     return raw;
-  }
-
-  String? _resolveTicketCode(VnpayReturnResponse response) {
-    return _firstNonEmpty([
-      response.qrData,
-      response.transactionNo,
-      response.txnRef,
-    ]);
-  }
-
-  String? _firstNonEmpty(Iterable<String?> values) {
-    for (final value in values) {
-      final trimmed = value?.trim();
-      if (trimmed != null && trimmed.isNotEmpty && trimmed != '-') {
-        return trimmed;
-      }
-    }
-    return null;
   }
 
   Future<void> _openPaymentPageAgain() async {

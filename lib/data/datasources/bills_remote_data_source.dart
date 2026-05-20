@@ -145,6 +145,34 @@ class BillsRemoteDataSource {
     }
   }
 
+  Future<BillModel> getBillById(
+    String billId, {
+    String? accessToken,
+  }) async {
+    try {
+      final response = await client.get(
+        Uri.parse('$baseUrl/api/v1/bills/$billId'),
+        headers: _buildHeaders(accessToken),
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = _decodeBody(response.body);
+        return BillModel.fromJson(decoded);
+      }
+
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        throw const UnauthorizedException('Chưa được xác thực');
+      }
+
+      throw _errorFromResponse(response, 'Lấy hóa đơn thất bại');
+    } catch (e) {
+      if (e is ServerException || e is UnauthorizedException) {
+        rethrow;
+      }
+      throw NetworkException('Network error occurred: $e');
+    }
+  }
+
   Map<String, String> _buildHeaders(String? accessToken) {
     final headers = <String, String>{
       'Content-Type': 'application/json',

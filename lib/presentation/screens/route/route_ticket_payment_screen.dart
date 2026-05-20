@@ -903,6 +903,7 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
             createResponse: createResponse,
             accessToken: accessToken,
             paymentProvider: _selectedProvider,
+            billId: bill.id,
           ),
         ),
       );

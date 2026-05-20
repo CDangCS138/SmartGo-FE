@@ -3,7 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/routes/app_routes.dart';
 import '../../../core/constants/ui_constants.dart';
 import '../../../core/di/injection.dart';
 import '../../../data/datasources/bills_remote_data_source.dart';
@@ -24,6 +26,7 @@ class _BillsScreenState extends State<BillsScreen> {
   static const String _statusPendingKey = 'PENDING';
   static const String _statusPaidKey = 'PAID';
   static const String _statusFailedKey = 'FAILED';
+  static const String _statusExpiredKey = 'EXPIRED';
   static const int _defaultLimit = 30;
 
   late final BillsRemoteDataSource _dataSource;
@@ -68,11 +71,25 @@ class _BillsScreenState extends State<BillsScreen> {
         child: Scaffold(
           backgroundColor: UIConstants.scaffoldBackground,
           appBar: AppBar(
-            title: const Text('Vé & Hóa đơn'),
+            title: const Text(
+              'Vé & Hóa đơn',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+              onPressed: () {
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                } else {
+                  context.go(AppRoutes.home);
+                }
+              },
+            ),
             bottom: const TabBar(
               labelColor: UIConstants.textPrimary,
               unselectedLabelColor: UIConstants.textSecondary,
               indicatorColor: UIConstants.primaryTeal,
+              labelStyle: TextStyle(fontWeight: FontWeight.w600),
               tabs: [
                 Tab(text: 'Vé của tôi'),
                 Tab(text: 'Danh sách hóa đơn'),
@@ -155,7 +172,7 @@ class _BillsScreenState extends State<BillsScreen> {
     }
 
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Column(
         children: [
           Padding(
@@ -170,6 +187,10 @@ class _BillsScreenState extends State<BillsScreen> {
               child: TabBar(
                 labelColor: UIConstants.textPrimary,
                 unselectedLabelColor: UIConstants.textSecondary,
+                labelStyle:
+                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                unselectedLabelStyle:
+                    const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
                 indicator: BoxDecoration(
                   color: UIConstants.scaffoldBackground,
                   borderRadius: BorderRadius.circular(12),
@@ -180,6 +201,7 @@ class _BillsScreenState extends State<BillsScreen> {
                   Tab(text: 'Chờ TT'),
                   Tab(text: 'Đã TT'),
                   Tab(text: 'Thất bại'),
+                  Tab(text: 'Hết hạn'),
                 ],
               ),
             ),
@@ -202,6 +224,10 @@ class _BillsScreenState extends State<BillsScreen> {
                 _buildBillsList(
                   statusKey: _statusFailedKey,
                   status: _statusFailedKey,
+                ),
+                _buildBillsList(
+                  statusKey: _statusExpiredKey,
+                  status: _statusExpiredKey,
                 ),
               ],
             ),
@@ -300,12 +326,25 @@ class _BillsScreenState extends State<BillsScreen> {
   Widget _buildEmptyScroll(String message) {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 32, 20, 32),
+      padding: const EdgeInsets.fromLTRB(20, 60, 20, 32),
       children: [
         Center(
-          child: Text(
-            message,
-            style: const TextStyle(color: UIConstants.textSecondary),
+          child: Column(
+            children: [
+              const Icon(
+                Icons.receipt_long_outlined,
+                size: 64,
+                color: UIConstants.iconMuted,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                message,
+                style: const TextStyle(
+                  color: UIConstants.textSecondary,
+                  fontSize: 15,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -319,57 +358,111 @@ class _BillsScreenState extends State<BillsScreen> {
         ticket.ticketType.isNotEmpty ? ticket.ticketType : bill.ticketType;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(color: UIConstants.borderLight),
-        boxShadow: UIConstants.softShadow,
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A0F172A),
+            blurRadius: 20,
+            offset: Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _ticketTypeLabel(ticketType),
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: UIConstants.textPrimary,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: UIConstants.primaryTeal.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.directions_bus_filled_rounded,
+                    color: UIConstants.primaryTeal,
+                    size: 20,
                   ),
                 ),
-              ),
-              _buildStatusPill(
-                label: _ticketStatusLabel(ticket.ticketStatus),
-                color: _ticketStatusColor(ticket.ticketStatus),
-              ),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _ticketTypeLabel(ticketType).toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                      color: UIConstants.textPrimary,
+                    ),
+                  ),
+                ),
+                _buildStatusPill(
+                  label: _ticketStatusLabel(ticket.ticketStatus),
+                  color: _ticketStatusColor(ticket.ticketStatus),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          Center(
-            child: _buildTicketQr(ticket),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                _buildTicketQr(ticket),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFF1F5F9)),
+                  ),
+                  child: Column(
+                    children: [
+                      _buildTicketMetaRow('Mã vé', ticket.ticketCode,
+                          isBold: true),
+                      if (bill.billCode.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        _buildTicketMetaRow('Hóa đơn', bill.billCode),
+                      ],
+                      if (ticket.remainingTrips > 0) ...[
+                        const SizedBox(height: 8),
+                        _buildTicketMetaRow(
+                          'Số lượt còn lại',
+                          ticket.remainingTrips.toString(),
+                          valueColor: UIConstants.primaryTeal,
+                          isBold: true,
+                        ),
+                      ],
+                      if (ticket.expiredAt != null) ...[
+                        const SizedBox(height: 8),
+                        _buildTicketMetaRow(
+                          'Hết hạn',
+                          _formatDateTime(ticket.expiredAt!),
+                        ),
+                      ],
+                      if (bill.paidAt != null) ...[
+                        const SizedBox(height: 8),
+                        _buildTicketMetaRow(
+                          'Thanh toán',
+                          _formatDateTime(bill.paidAt!),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          _buildTicketMetaRow('Mã vé', ticket.ticketCode),
-          if (bill.billCode.isNotEmpty)
-            _buildTicketMetaRow('Hóa đơn', bill.billCode),
-          if (ticket.remainingTrips > 0)
-            _buildTicketMetaRow(
-              'Số lượt còn lại',
-              ticket.remainingTrips.toString(),
-            ),
-          if (ticket.expiredAt != null)
-            _buildTicketMetaRow(
-              'Hết hạn',
-              _formatDateTime(ticket.expiredAt!),
-            ),
-          if (bill.paidAt != null)
-            _buildTicketMetaRow(
-              'Thanh toán',
-              _formatDateTime(bill.paidAt!),
-            ),
         ],
       ),
     );
@@ -378,42 +471,48 @@ class _BillsScreenState extends State<BillsScreen> {
   Widget _buildTicketQr(TicketModel ticket) {
     final qrPayload = ticket.qrPayload?.trim();
     if (qrPayload != null && qrPayload.isNotEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: UIConstants.borderLight),
-        ),
-        child: QrImageView(
-          data: qrPayload,
-          version: QrVersions.auto,
-          size: 200,
-          backgroundColor: Colors.white,
+      return GestureDetector(
+        onTap: () => _showZoomedQr(context, ticket),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: UIConstants.borderLight),
+          ),
+          child: QrImageView(
+            data: qrPayload,
+            version: QrVersions.auto,
+            size: 180,
+            backgroundColor: Colors.white,
+          ),
         ),
       );
     }
 
     final imageUrl = ticket.qrImageUrl?.trim();
     if (imageUrl != null && imageUrl.isNotEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: UIConstants.borderLight),
-        ),
-        child: Image.network(
-          imageUrl,
-          width: 200,
-          height: 200,
-          fit: BoxFit.contain,
-          errorBuilder: (context, error, stackTrace) {
-            return const Text(
-              'Không tải được mã QR',
-              style: TextStyle(color: UIConstants.textSecondary),
-            );
-          },
+      return GestureDetector(
+        onTap: () => _showZoomedQr(context, ticket),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: UIConstants.borderLight),
+          ),
+          child: Image.network(
+            imageUrl,
+            width: 180,
+            height: 180,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              return const Text(
+                'Không tải được mã QR',
+                style: TextStyle(color: UIConstants.textSecondary),
+              );
+            },
+          ),
         ),
       );
     }
@@ -432,30 +531,99 @@ class _BillsScreenState extends State<BillsScreen> {
     );
   }
 
-  Widget _buildTicketMetaRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: Row(
-        children: [
-          Text(
-            '$label: ',
+  void _showZoomedQr(BuildContext context, TicketModel ticket) {
+    final qrPayload = ticket.qrPayload?.trim();
+    final imageUrl = ticket.qrImageUrl?.trim();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (qrPayload != null && qrPayload.isNotEmpty)
+                  QrImageView(
+                    data: qrPayload,
+                    version: QrVersions.auto,
+                    size: 240,
+                    backgroundColor: Colors.white,
+                  )
+                else if (imageUrl != null && imageUrl.isNotEmpty)
+                  Image.network(
+                    imageUrl,
+                    width: 240,
+                    height: 240,
+                    fit: BoxFit.contain,
+                  ),
+                const SizedBox(height: 24),
+                Text(
+                  ticket.ticketCode,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Đưa mã này cho nhân viên kiểm soát',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: UIConstants.textSecondary),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Đóng'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTicketMetaRow(
+    String label,
+    String value, {
+    Color? valueColor,
+    bool isBold = false,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 2,
+          child: Text(
+            label,
             style: const TextStyle(
               color: UIConstants.textSecondary,
-              fontSize: 12,
+              fontSize: 13,
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: UIConstants.textPrimary,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
+        ),
+        Expanded(
+          flex: 3,
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: valueColor ?? UIConstants.textPrimary,
+              fontSize: 13,
+              fontWeight: isBold ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -464,23 +632,56 @@ class _BillsScreenState extends State<BillsScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: UIConstants.borderLight),
-        boxShadow: UIConstants.softShadow,
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A0F172A),
+            blurRadius: 16,
+            offset: Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.receipt_long_rounded,
+                  color: UIConstants.textSecondary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  bill.billCode.isNotEmpty ? bill.billCode : 'Hóa đơn',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: UIConstants.textPrimary,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      bill.billCode.isNotEmpty ? bill.billCode : 'Hóa đơn',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: UIConstants.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _formatBillDate(bill),
+                      style: const TextStyle(
+                        color: UIConstants.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               _buildStatusPill(
@@ -489,59 +690,85 @@ class _BillsScreenState extends State<BillsScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Tổng tiền: ${_currencyFormat.format(bill.totalAmount)}đ',
-            style: const TextStyle(
-              color: UIConstants.textPrimary,
-              fontSize: 13,
-            ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Divider(height: 1, color: UIConstants.borderLight),
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Loại vé: ${_ticketTypeLabel(bill.ticketType)}',
-            style: const TextStyle(
-              color: UIConstants.textSecondary,
-              fontSize: 12,
-            ),
-          ),
-          if (bill.quantity > 0)
-            Text(
-              'Số lượng: ${bill.quantity}',
-              style: const TextStyle(
-                color: UIConstants.textSecondary,
-                fontSize: 12,
-              ),
-            ),
-          const SizedBox(height: 8),
           Row(
             children: [
-              const Icon(
-                Icons.schedule_rounded,
-                size: 14,
-                color: UIConstants.textSecondary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                _formatBillDate(bill),
-                style: const TextStyle(
-                  color: UIConstants.textSecondary,
-                  fontSize: 12,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Loại vé: ${_ticketTypeLabel(bill.ticketType)}',
+                      style: const TextStyle(
+                        color: UIConstants.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                    if (bill.quantity > 0) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Số lượng: ${bill.quantity}',
+                        style: const TextStyle(
+                          color: UIConstants.textSecondary,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Text(
+                    'Tổng tiền',
+                    style: TextStyle(
+                      color: UIConstants.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${_currencyFormat.format(bill.totalAmount)}đ',
+                    style: const TextStyle(
+                      color: UIConstants.primaryTeal,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-          if ((bill.txnRef ?? '').isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                'Mã giao dịch: ${bill.txnRef}',
-                style: const TextStyle(
-                  color: UIConstants.textSecondary,
-                  fontSize: 12,
-                ),
+          if ((bill.txnRef ?? '').isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.tag, size: 14, color: UIConstants.textMuted),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Mã GD: ${bill.txnRef}',
+                      style: const TextStyle(
+                        color: UIConstants.textSecondary,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
+          ],
         ],
       ),
     );
