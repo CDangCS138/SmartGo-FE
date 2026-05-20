@@ -13,6 +13,7 @@ class AppRoutes {
   static const String routeDetail = '/routes/:id';
   static const String favoriteRoutes = '/favorite-routes';
   static const String bills = '/bills';
+  static const String notifications = '/notifications';
   static const String settings = '/settings';
   static const String usersAdmin = '/settings/users';
   static const String themeSettings = '/settings/theme';
