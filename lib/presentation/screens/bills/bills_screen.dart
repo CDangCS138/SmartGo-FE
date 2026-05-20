@@ -839,7 +839,7 @@ class _BillsScreenState extends State<BillsScreen> {
   }
 
   String _formatDateTime(DateTime dateTime) {
-    return DateFormat('dd/MM/yyyy HH:mm').format(dateTime);
+    return DateFormat('dd/MM/yyyy HH:mm').format(dateTime.toLocal());
   }
 
   String _formatBillDate(BillModel bill) {
