@@ -8,6 +8,7 @@ class AppConstants {
   static const String authTokenKey = 'auth_token';
   static const String refreshTokenKey = 'refresh_token';
   static const String userKey = 'user_data';
+  static const String pendingBillIdKey = 'pending_bill_id';
   static const String chatbotConversationHistoryKey =
       'chatbot_conversation_history';
 

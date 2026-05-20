@@ -37,16 +37,17 @@ class _LiveMapCardState extends State<LiveMapCard> {
 
   @override
   void dispose() {
-    _stopRealtime();
+    _stopRealtime(notify: false);
     super.dispose();
   }
 
-  void _stopRealtime() {
+  void _stopRealtime({bool notify = true}) {
     _sseSubscription?.cancel();
     _sseSubscription = null;
     _sseClient?.close();
     _sseClient = null;
-    if (mounted) {
+    _isRealtime = false;
+    if (notify && mounted) {
       setState(() {
         _isRealtime = false;
       });

@@ -32,6 +32,10 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
 
   final TextEditingController _searchController = TextEditingController();
   final MapController _mapController = MapController();
+  final Object _zoomInHeroTag = Object();
+  final Object _zoomOutHeroTag = Object();
+  final Object _myLocationHeroTag = Object();
+  final Object _nearbyStationsHeroTag = Object();
   StreamSubscription<MapEvent>? _mapEventSubscription;
 
   LatLng _currentPosition = const LatLng(10.8231, 106.6297);
@@ -654,21 +658,21 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
               child: Column(
                 children: [
                   FloatingActionButton.small(
-                    heroTag: 'live_map_zoom_in',
+                    heroTag: _zoomInHeroTag,
                     backgroundColor: scheme.surface,
                     onPressed: () => _zoomBy(1),
                     child: Icon(MapIcons.zoomIn, color: scheme.primary),
                   ),
                   const SizedBox(height: 8),
                   FloatingActionButton.small(
-                    heroTag: 'live_map_zoom_out',
+                    heroTag: _zoomOutHeroTag,
                     backgroundColor: scheme.surface,
                     onPressed: () => _zoomBy(-1),
                     child: Icon(MapIcons.zoomOut, color: scheme.primary),
                   ),
                   const SizedBox(height: 8),
                   FloatingActionButton.small(
-                    heroTag: 'live_map_my_location',
+                    heroTag: _myLocationHeroTag,
                     backgroundColor: scheme.surface,
                     onPressed: _focusOnCurrentLocation,
                     child: _isLoadingLocation
@@ -684,7 +688,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                   ),
                   const SizedBox(height: 8),
                   FloatingActionButton.small(
-                    heroTag: 'live_map_nearby_stations',
+                    heroTag: _nearbyStationsHeroTag,
                     backgroundColor:
                         _showNearbyOnly ? scheme.primary : scheme.surface,
                     onPressed: _showNearbyDialog,

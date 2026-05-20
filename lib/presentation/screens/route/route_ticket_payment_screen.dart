@@ -4,11 +4,14 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/errors/exceptions.dart';
+import 'package:smartgo/core/constants/app_constants.dart';
 import 'package:smartgo/core/constants/app_env.dart';
 import 'package:smartgo/core/routes/app_routes.dart';
 import 'package:smartgo/core/services/storage_service.dart';
 import 'package:smartgo/core/utils/open_external_url.dart';
+import 'package:smartgo/data/datasources/bills_remote_data_source.dart';
 import 'package:smartgo/data/datasources/payment_remote_data_source.dart';
+import 'package:smartgo/data/models/bill_models.dart';
 import 'package:smartgo/data/models/payment_request_models.dart';
 import 'package:smartgo/data/models/payment_response_models.dart';
 import 'package:smartgo/domain/entities/route.dart';
@@ -33,17 +36,30 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
   static const String _providerMomo = 'MoMo';
 
   static const List<_TicketOption> _ticketOptions = [
-    _TicketOption(label: 'Vé lượt', description: 'Vé một lượt đi', price: 7000),
     _TicketOption(
-        label: 'Vé HSSV',
-        description: 'Vé dành cho học sinh, sinh viên',
-        price: 3000),
+      label: 'Vé lượt',
+      description: 'Vé một lượt đi',
+      price: 7000,
+      ticketType: 'LUOT',
+    ),
     _TicketOption(
-        label: 'Vé tháng',
-        description: 'Vé sử dụng không giới hạn trong 30 ngày',
-        price: 200000),
+      label: 'Vé HSSV',
+      description: 'Vé dành cho học sinh, sinh viên',
+      price: 3000,
+      ticketType: 'HSSV',
+    ),
     _TicketOption(
-        label: 'Vé tập', description: 'Gói 25 lượt đi', price: 157500),
+      label: 'Vé tháng',
+      description: 'Vé sử dụng không giới hạn trong 30 ngày',
+      price: 200000,
+      ticketType: 'THANG',
+    ),
+    _TicketOption(
+      label: 'Vé tập',
+      description: 'Gói 25 lượt đi',
+      price: 157500,
+      ticketType: 'TAP',
+    ),
   ];
 
   static const List<_PaymentMethodOption> _paymentMethods = [
@@ -83,6 +99,7 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
 
   final http.Client _client = http.Client();
   late final PaymentRemoteDataSource _paymentRemoteDataSource;
+  late final BillsRemoteDataSource _billsRemoteDataSource;
   final NumberFormat _currencyFormat = NumberFormat('#,###', 'vi_VN');
 
   int get _totalAmount =>
@@ -92,6 +109,7 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
   void initState() {
     super.initState();
     _paymentRemoteDataSource = PaymentRemoteDataSourceImpl(client: _client);
+    _billsRemoteDataSource = BillsRemoteDataSource(client: _client);
   }
 
   @override
@@ -779,7 +797,8 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
   Future<void> _onProceedPayment() async {
     if (_isSubmitting) return;
 
-    final accessToken = getIt<StorageService>().getAuthToken();
+    final storage = getIt<StorageService>();
+    final accessToken = storage.getAuthToken();
     if (accessToken == null || accessToken.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -801,12 +820,31 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
     late VnpayCreatePaymentResponse createResponse;
 
     try {
+      final bill = await _billsRemoteDataSource.createBill(
+        BillCreateRequest(
+          routeId: widget.route.id,
+          ticketType: selectedTicket.ticketType,
+          quantity: _quantity,
+          discountAmount: 0,
+          metadata: {
+            'routeCode': widget.route.routeCode,
+            'ticketLabel': selectedTicket.label,
+          },
+        ),
+        accessToken: accessToken,
+      );
+
+      await storage.saveString(AppConstants.pendingBillIdKey, bill.id);
+
+      final billAmount = bill.totalAmount > 0 ? bill.totalAmount : _totalAmount;
+
       VnpayCreatePaymentRequest buildRequest({String? returnUrl}) {
         return VnpayCreatePaymentRequest(
-          amount: _totalAmount,
+          amount: billAmount,
           orderDescription:
               'Thanh toán ${selectedTicket.label} tuyến ${widget.route.routeCode} x$_quantity',
           orderType: 'other',
+          billId: bill.id,
           bankCode: null,
           locale: 'vn',
           platform: platform,
@@ -828,7 +866,10 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
               );
       }
 
-      final requestedReturnUrl = _buildReturnUrl(isMomo: isMomo);
+      final requestedReturnUrl = _buildReturnUrl(
+        isMomo: isMomo,
+        billId: bill.id,
+      );
       try {
         createResponse = await createPayment(
           buildRequest(returnUrl: requestedReturnUrl),
@@ -905,19 +946,27 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
     ));
   }
 
-  String _buildReturnUrl({required bool isMomo}) {
+  String _buildReturnUrl({required bool isMomo, String? billId}) {
     final callbackPath =
         isMomo ? AppRoutes.momoPaymentCallback : AppRoutes.vnpayPaymentCallback;
 
     if (kIsWeb) {
       final origin = Uri.base.origin;
-      return '$origin$callbackPath';
+      final uri = Uri.parse('$origin$callbackPath').replace(
+        queryParameters:
+            billId == null || billId.isEmpty ? null : {'billId': billId},
+      );
+      return uri.toString();
     }
 
     final returnPath = isMomo
         ? '/api/v1/payments/momo/return/app'
         : '/api/v1/payments/vnpay/return/app';
-    return '${AppEnv.baseUrl}$returnPath';
+    final uri = Uri.parse('${AppEnv.baseUrl}$returnPath').replace(
+      queryParameters:
+          billId == null || billId.isEmpty ? null : {'billId': billId},
+    );
+    return uri.toString();
   }
 }
 
@@ -925,11 +974,13 @@ class _TicketOption {
   final String label;
   final String description;
   final int price;
+  final String ticketType;
 
   const _TicketOption({
     required this.label,
     required this.description,
     required this.price,
+    required this.ticketType,
   });
 }
 

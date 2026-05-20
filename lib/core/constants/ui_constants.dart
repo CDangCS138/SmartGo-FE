@@ -38,6 +38,12 @@ class UIConstants {
   static const Color favoriteBg = Color(0xFFFEF2F2);
   static const Color favoriteFg = Color(0xFFEF4444);
 
+  static const Color billsBg = Color(0xFFF0F9FF);
+  static const Color billsFg = Color(0xFF0284C7);
+
+  static const Color routesBg = Color(0xFFF1F5F9);
+  static const Color routesFg = Color(0xFF475569);
+
   // Shadows
   static const List<BoxShadow> softShadow = [
     BoxShadow(

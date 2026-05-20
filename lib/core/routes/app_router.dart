@@ -17,6 +17,7 @@ import '../../presentation/screens/users/users_admin_screen.dart';
 import '../../presentation/screens/profile/profile_screen.dart';
 import '../../presentation/screens/route/route_list_screen.dart';
 import '../../presentation/screens/favorites/favorite_routes_screen.dart';
+import '../../presentation/screens/bills/bills_screen.dart';
 import '../../presentation/screens/route/payment_callback_screen.dart';
 import '../../presentation/screens/chatbot/chatbot_screen.dart';
 import '../../presentation/screens/chatbot/chatbot_admin_screen.dart';
@@ -55,7 +56,10 @@ class AppRouter {
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
           return Scaffold(
-            body: navigationShell,
+            body: HeroMode(
+              enabled: false,
+              child: navigationShell,
+            ),
             extendBody:
                 true, // Cho phép body (bản đồ) tràn xuống dưới nền của Navbar trong suốt
             bottomNavigationBar: ValueListenableBuilder<bool>(
@@ -162,6 +166,11 @@ class AppRouter {
         path: AppRoutes.favoriteRoutes,
         name: 'favorite-routes',
         builder: (context, state) => const FavoriteRoutesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.bills,
+        name: 'bills',
+        builder: (context, state) => const BillsScreen(),
       ),
       GoRoute(
         path: AppRoutes.busSimulations,

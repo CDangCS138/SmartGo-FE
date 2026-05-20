@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:smartgo/core/constants/app_constants.dart';
 import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/routes/app_routes.dart';
 import 'package:smartgo/core/services/storage_service.dart';
 import 'package:smartgo/core/utils/open_external_url.dart';
+import 'package:smartgo/data/datasources/bills_remote_data_source.dart';
 import 'package:smartgo/data/datasources/payment_remote_data_source.dart';
 import 'package:smartgo/data/models/payment_response_models.dart';
 
@@ -29,6 +32,8 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
 
   bool _isVerifying = true;
   VnpayReturnResponse? _verifyResponse;
+  bool _hasRedirected = false;
+  bool _hasUpdatedBillStatus = false;
 
   bool get _isMomo => widget.provider.toLowerCase() == 'momo';
 
@@ -71,6 +76,9 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
         _verifyResponse = result;
         _isVerifying = false;
       });
+
+      await _updateBillStatusIfNeeded();
+      _maybeRedirectToBills();
     } catch (e) {
       if (!mounted) {
         return;
@@ -79,7 +87,80 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
       setState(() {
         _isVerifying = false;
       });
+
+      await _updateBillStatusIfNeeded();
+      _maybeRedirectToBills();
     }
+  }
+
+  bool _isPaymentSuccess() {
+    final callbackSuccess = _isCallbackSuccess();
+    final verifySuccess = _verifyResponse?.success;
+    return verifySuccess ?? callbackSuccess;
+  }
+
+  String? _resolveBillId(StorageService storage) {
+    return _firstNonEmpty([
+      widget.callbackParams['billId'],
+      widget.callbackParams['bill_id'],
+      storage.getString(AppConstants.pendingBillIdKey),
+    ]);
+  }
+
+  Future<void> _updateBillStatusIfNeeded() async {
+    if (!mounted || _hasUpdatedBillStatus) {
+      return;
+    }
+
+    if (!_isPaymentSuccess()) {
+      return;
+    }
+
+    final storage = getIt<StorageService>();
+    final billId = _resolveBillId(storage);
+    if (billId == null || billId.isEmpty) {
+      return;
+    }
+
+    final accessToken = storage.getAuthToken();
+    if (accessToken == null || accessToken.isEmpty) {
+      return;
+    }
+
+    _hasUpdatedBillStatus = true;
+    try {
+      final billsDataSource = BillsRemoteDataSource(
+        client: getIt<http.Client>(),
+      );
+      await billsDataSource.updateBillStatus(
+        billId,
+        status: 'PAID',
+        accessToken: accessToken,
+      );
+      await storage.removeKey(AppConstants.pendingBillIdKey);
+    } catch (_) {
+      // Avoid retry loops on transient errors.
+    }
+  }
+
+  void _maybeRedirectToBills() {
+    if (!mounted || _hasRedirected) {
+      return;
+    }
+
+    final effectiveSuccess = _isPaymentSuccess();
+
+    if (!effectiveSuccess) {
+      return;
+    }
+
+    _hasRedirected = true;
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (!mounted) {
+        return;
+      }
+      context.go(AppRoutes.bills);
+    });
   }
 
   bool _isCallbackSuccess() {
@@ -292,6 +373,13 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
                 onPressed: _openInApp,
                 icon: const Icon(Icons.open_in_new),
                 label: const Text('Mở trong ứng dụng SmartGo'),
+              ),
+            ],
+            if (effectiveSuccess) ...[
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: () => context.go(AppRoutes.bills),
+                child: const Text('Xem vé của tôi'),
               ),
             ],
             const SizedBox(height: 16),
