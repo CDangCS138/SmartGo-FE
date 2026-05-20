@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 
 class AppTileLayer {
@@ -7,17 +8,21 @@ class AppTileLayer {
   static const String userAgent =
       'SmartGoApp/1.0.0 (contact: tcongdang04@gmail.com)';
 
-  static final NetworkTileProvider tileProvider = NetworkTileProvider(
-    headers: {
-      'User-Agent': userAgent,
-    },
-  );
+  static NetworkTileProvider _buildTileProvider() {
+    // On web, setting User-Agent is forbidden and can trigger CORS failures.
+    final headers = <String, String>{};
+    if (!kIsWeb) {
+      headers['User-Agent'] = userAgent;
+    }
+    return NetworkTileProvider(headers: headers.isEmpty ? null : headers);
+  }
 
   static TileLayer standard() {
     return TileLayer(
       urlTemplate: urlTemplate,
       userAgentPackageName: userAgentPackageName,
-      tileProvider: tileProvider,
+      tileProvider: _buildTileProvider(),
+      keepBuffer: 4,
     );
   }
 }
