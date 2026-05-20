@@ -232,9 +232,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: notification.isRead
-              ? UIConstants.borderLight
-              : UIConstants.primaryTeal.withValues(alpha: 0.35),
+          color: UIConstants.borderLight,
         ),
         boxShadow: const [
           BoxShadow(
@@ -271,11 +269,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       notification.title.isNotEmpty
                           ? notification.title
                           : 'Thông báo',
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 16,
-                        fontWeight: notification.isRead
-                            ? FontWeight.w600
-                            : FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                         color: UIConstants.textPrimary,
                       ),
                     ),
@@ -311,30 +307,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               ),
             ),
           ],
-          // if (!notification.isRead) ...[
-          //   const SizedBox(height: 10),
-          //   Row(
-          //     children: [
-          //       Container(
-          //         width: 8,
-          //         height: 8,
-          //         decoration: const BoxDecoration(
-          //           color: UIConstants.primaryTeal,
-          //           shape: BoxShape.circle,
-          //         ),
-          //       ),
-          //       const SizedBox(width: 6),
-          //       const Text(
-          //         'Chưa đọc',
-          //         style: TextStyle(
-          //           color: UIConstants.primaryTeal,
-          //           fontSize: 12,
-          //           fontWeight: FontWeight.w600,
-          //         ),
-          //       ),
-          //     ],
-          //   ),
-          // ],
         ],
       ),
     );
@@ -431,7 +403,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Future<NotificationsPageResponse> _loadNotifications({String? type}) {
+  Future<NotificationsPageResponse> _loadNotifications({
+    String? type,
+    String? accessToken,
+  }) {
     return _dataSource.getNotifications(
       page: 1,
       limit: _defaultLimit,
@@ -440,6 +415,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       type: type,
       orderBy: 'createdAt',
       orderDirection: 'desc',
+      accessToken: accessToken,
     );
   }
 
@@ -451,9 +427,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     String typeKey, {
     String? type,
   }) {
+    final authState = context.read<AuthBloc>().state;
+    final accessToken = authState is AuthAuthenticated ? authState.accessToken : null;
+
     return _notificationFutures.putIfAbsent(
       _cacheKey(typeKey),
-      () => _loadNotifications(type: type),
+      () => _loadNotifications(type: type, accessToken: accessToken),
     );
   }
 
@@ -461,7 +440,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     String typeKey, {
     String? type,
   }) async {
-    final future = _loadNotifications(type: type);
+    final authState = context.read<AuthBloc>().state;
+    final accessToken = authState is AuthAuthenticated ? authState.accessToken : null;
+
+    final future = _loadNotifications(type: type, accessToken: accessToken);
     setState(() {
       _notificationFutures[_cacheKey(typeKey)] = future;
     });
