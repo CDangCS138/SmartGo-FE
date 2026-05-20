@@ -22,6 +22,7 @@ class LiveMapCard extends StatefulWidget {
 class _LiveMapCardState extends State<LiveMapCard> {
   final MapController _mapController = MapController();
   List<_LiveBusPosition> _buses = [];
+  int _totalActiveBuses = 0;
 
   SseClient? _sseClient;
   StreamSubscription<String>? _sseSubscription;
@@ -74,13 +75,27 @@ class _LiveMapCardState extends State<LiveMapCard> {
         if (!mounted) return;
         try {
           final data = json.decode(payload);
-          if (data is List) {
+          if (data is Map<String, dynamic>) {
+            final positionsRaw = data['positions'];
+            final total = (data['totalActiveBuses'] as num?)?.toInt() ?? 0;
+            if (positionsRaw is List) {
+              final parsed = positionsRaw
+                  .map((e) =>
+                      _LiveBusPosition.fromJson(e as Map<String, dynamic>))
+                  .toList();
+              setState(() {
+                _buses = parsed;
+                _totalActiveBuses = total;
+              });
+            }
+          } else if (data is List) {
             final parsed = data
                 .map(
                     (e) => _LiveBusPosition.fromJson(e as Map<String, dynamic>))
                 .toList();
             setState(() {
               _buses = parsed;
+              _totalActiveBuses = parsed.length;
             });
           }
         } catch (_) {
@@ -107,7 +122,9 @@ class _LiveMapCardState extends State<LiveMapCard> {
             b.status.toUpperCase() == 'SCHEDULED')
         .toList();
     final center = _resolveCenter(activeBuses);
-    final visibleLabel = '${activeBuses.length} xe đang chạy';
+    final displayCount =
+        _totalActiveBuses > 0 ? _totalActiveBuses : activeBuses.length;
+    final visibleLabel = '$displayCount xe đang chạy';
 
     return Container(
       padding: const EdgeInsets.all(16),
