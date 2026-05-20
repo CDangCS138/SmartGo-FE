@@ -57,6 +57,9 @@ class AuthenticatedHttpClient extends http.BaseClient {
   Future<http.StreamedResponse> _maybeDecryptResponse(
     http.StreamedResponse response,
   ) async {
+    if (!AppEnv.encryptionEnabled) {
+      return response;
+    }
     if (_isEventStream(response)) {
       return response;
     }

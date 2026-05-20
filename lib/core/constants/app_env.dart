@@ -3,6 +3,8 @@ class AppEnv {
 
   static const String _baseUrl = 'https://api.smart-go.me';
   static const int apiTimeoutMs = 30000;
+  static const bool encryptionEnabled =
+      bool.fromEnvironment('ENCRYPTION_ENABLED', defaultValue: false);
   static const String encryptionSecret =
       String.fromEnvironment('ENCRYPTION_SECRET', defaultValue: '');
   static const String encryptionAlgorithm = String.fromEnvironment(
