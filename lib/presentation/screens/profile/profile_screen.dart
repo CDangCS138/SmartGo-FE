@@ -72,11 +72,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
-    final authState = context.read<AuthBloc>().state;
-    final userIdFromState =
-        authState is AuthAuthenticated ? authState.user.id : null;
-    final fallbackId = _rawUser?['_id']?.toString();
-    final userId = userIdFromState ?? fallbackId;
+    final userId = _resolveCurrentUserId();
 
     if (userId == null || userId.isEmpty) {
       return;
@@ -126,7 +122,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (picked == null) return;
 
     final token = getIt<StorageService>().getAuthToken();
-    final userId = _profileUser?.id ?? _rawUser?['_id']?.toString();
+    final userId = _resolveCurrentUserId();
 
     if (token == null || token.isEmpty || userId == null || userId.isEmpty) {
       _showToast('Không thể xác thực để cập nhật ảnh đại diện');
@@ -143,6 +139,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) {
         setState(() => _profileUser = updatedUser);
         _syncToStorage(updatedUser);
+        _fetchMyProfile();
         _showToast('Đã cập nhật ảnh đại diện');
       }
     } catch (e) {
@@ -182,7 +179,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (newName == null || newName.isEmpty || newName == currentName) return;
 
     final token = getIt<StorageService>().getAuthToken();
-    final userId = _profileUser?.id ?? _rawUser?['_id']?.toString();
+    final userId = _resolveCurrentUserId();
 
     if (token == null || token.isEmpty || userId == null || userId.isEmpty) {
       _showToast('Không thể xác thực để cập nhật tên');
@@ -220,6 +217,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _showToast(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  String? _resolveCurrentUserId() {
+    final authState = context.read<AuthBloc>().state;
+    final fromState = authState is AuthAuthenticated ? authState.user.id : null;
+    return _profileUser?.id ?? fromState ?? _rawUser?['_id']?.toString();
   }
 
   @override
