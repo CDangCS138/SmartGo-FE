@@ -53,19 +53,26 @@ class NotificationModel {
   });
 
   factory NotificationModel.fromJson(Map<String, dynamic> json) {
-    final data = _unwrapDataMap(json);
+    // API gắn payload hóa đơn vào field "data" — không unwrap như wrapper list.
+    final nestedPayload = json['data'];
+    final metadata = nestedPayload is Map<String, dynamic>
+        ? nestedPayload
+        : nestedPayload is Map
+            ? Map<String, dynamic>.from(nestedPayload)
+            : _mapOrEmpty(json['metadata']);
 
     return NotificationModel(
-      id: _readString(data['_id'] ?? data['id']),
-      title: _readString(data['title']),
-      content: _readString(data['content'] ?? data['body'] ?? data['message']),
+      id: _readString(json['_id'] ?? json['id']),
+      title: _readString(json['title']),
+      content: _readString(json['content'] ?? json['body'] ?? json['message']),
       type: NotificationType.fromApi(
-        _readStringOrNull(data['type']) ?? data['notificationType']?.toString(),
+        _readStringOrNull(json['type']) ??
+            json['notificationType']?.toString(),
       ),
-      isRead: _readBool(data['isRead'] ?? data['read']),
-      createdAt: _tryParseDate(data['createdAt'] ?? data['created_at']),
-      readAt: _tryParseDate(data['readAt'] ?? data['read_at']),
-      metadata: _mapOrEmpty(data['metadata']),
+      isRead: _readBool(json['isRead'] ?? json['read']),
+      createdAt: _tryParseDate(json['createdAt'] ?? json['created_at']),
+      readAt: _tryParseDate(json['readAt'] ?? json['read_at']),
+      metadata: metadata,
     );
   }
 }
@@ -121,17 +128,6 @@ class NotificationsPageResponse {
       data: notifications,
     );
   }
-}
-
-Map<String, dynamic> _unwrapDataMap(Map<String, dynamic> json) {
-  final data = json['data'];
-  if (data is Map<String, dynamic>) {
-    return data;
-  }
-  if (data is Map) {
-    return Map<String, dynamic>.from(data);
-  }
-  return json;
 }
 
 Map<String, dynamic>? _asMap(dynamic raw) {
