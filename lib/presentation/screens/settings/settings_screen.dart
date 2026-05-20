@@ -23,12 +23,17 @@ class SettingsScreen extends StatelessWidget {
     final user = authState is AuthAuthenticated ? authState.user : null;
 
     String role = 'MEMBER';
+    String? avatarUrl;
     final rawData = getIt<StorageService>().getUserData();
     if (rawData != null && rawData.isNotEmpty) {
       try {
         final parsed = json.decode(rawData);
         if (parsed['role'] != null) {
           role = parsed['role'].toString().toUpperCase();
+        }
+        if (parsed['avatar'] != null &&
+            parsed['avatar'].toString().trim().isNotEmpty) {
+          avatarUrl = parsed['avatar'].toString().trim();
         }
       } catch (_) {}
     }
@@ -91,15 +96,23 @@ class SettingsScreen extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(16),
+                            image: avatarUrl != null
+                                ? DecorationImage(
+                                    image: NetworkImage(avatarUrl),
+                                    fit: BoxFit.cover,
+                                  )
+                                : null,
                           ),
-                          child: Text(
-                            initials,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                          child: avatarUrl == null
+                              ? Text(
+                                  initials,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                )
+                              : null,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
