@@ -45,6 +45,7 @@ dependencies:
 
   # HTTP & Network
   http: ^1.1.0
+  http_parser: ^4.1.2
   dio: ^5.7.0
   retrofit: ^4.4.1
   pretty_dio_logger: ^1.4.0
@@ -89,6 +90,7 @@ dependencies:
   url_launcher: ^6.3.1
   url_strategy: ^0.3.0
   image_picker: ^1.1.2
+  mime: ^2.0.0
   file_picker: ^8.1.7
   flutter_tts: ^4.2.2
   speech_to_text: ^7.3.0
