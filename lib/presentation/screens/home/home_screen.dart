@@ -305,50 +305,61 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildShortcuts() {
+    final shortcuts = [
+      _buildShortcutItem(
+        icon: Icons.route_outlined,
+        label: 'Tìm đường',
+        bg: UIConstants.routeBg,
+        fg: UIConstants.routeFg,
+        onTap: () => context.go(AppRoutes.pathFindingDemo),
+      ),
+      _buildShortcutItem(
+        icon: Icons.map_outlined,
+        label: 'Bản đồ',
+        bg: UIConstants.mapBg,
+        fg: UIConstants.mapFg,
+        onTap: () => context.go(AppRoutes.liveMap),
+      ),
+      _buildShortcutItem(
+        icon: Icons.receipt_long_outlined,
+        label: 'Vé của tôi',
+        bg: UIConstants.billsBg,
+        fg: UIConstants.billsFg,
+        onTap: () => context.go(AppRoutes.bills),
+      ),
+      _buildShortcutItem(
+        icon: Icons.list_alt_rounded,
+        label: 'Tuyến xe',
+        bg: UIConstants.routesBg,
+        fg: UIConstants.routesFg,
+        onTap: () => context.go(AppRoutes.routes),
+      ),
+      _buildShortcutItem(
+        icon: Icons.auto_awesome_outlined,
+        label: 'Trợ lý AI',
+        bg: UIConstants.aiBg,
+        fg: UIConstants.aiFg,
+        onTap: () => context.go(AppRoutes.chatbot),
+      ),
+      _buildShortcutItem(
+        icon: Icons.directions_bus_outlined,
+        label: 'Bus',
+        bg: UIConstants.busBg,
+        fg: UIConstants.busFg,
+        onTap: () => context.go(AppRoutes.busSimulations),
+      ),
+    ];
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildShortcutItem(
-              icon: Icons.route_outlined,
-              label: 'Tìm đường',
-              bg: UIConstants.routeBg,
-              fg: UIConstants.routeFg,
-              onTap: () => context.go(AppRoutes.pathFindingDemo),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildShortcutItem(
-              icon: Icons.map_outlined,
-              label: 'Bản đồ',
-              bg: UIConstants.mapBg,
-              fg: UIConstants.mapFg,
-              onTap: () => context.go(AppRoutes.liveMap),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildShortcutItem(
-              icon: Icons.auto_awesome_outlined,
-              label: 'Trợ lý AI',
-              bg: UIConstants.aiBg,
-              fg: UIConstants.aiFg,
-              onTap: () => context.go(AppRoutes.chatbot),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildShortcutItem(
-              icon: Icons.directions_bus_outlined,
-              label: 'Bus',
-              bg: UIConstants.busBg,
-              fg: UIConstants.busFg,
-              onTap: () => context.go(AppRoutes.busSimulations),
-            ),
-          ),
-        ],
+      child: GridView.count(
+        crossAxisCount: 3,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 0.96,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        children: shortcuts,
       ),
     );
   }

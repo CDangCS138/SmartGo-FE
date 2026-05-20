@@ -116,6 +116,8 @@ class PathFindingDemoScreen extends StatefulWidget {
 
 class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   final MapController _mapController = MapController();
+  final Object _myLocationHeroTag = Object();
+  final Object _findPathHeroTag = Object();
 
   ScaffoldMessengerState? _scaffoldMessenger;
   ColorScheme? _colorScheme;
@@ -3812,7 +3814,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         FloatingActionButton.small(
-          heroTag: 'path_finding_my_location',
+          heroTag: _myLocationHeroTag,
           onPressed:
               _isFetchingLocation ? null : () => _setUseCurrentLocation(),
           backgroundColor: scheme.surface,
@@ -3830,7 +3832,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         ),
         const SizedBox(height: 16),
         FloatingActionButton.extended(
-          heroTag: 'path_finding_find_path',
+          heroTag: _findPathHeroTag,
           onPressed: _findPath,
           icon: const Icon(MapIcons.search),
           label: const Text('Tìm đường'),
