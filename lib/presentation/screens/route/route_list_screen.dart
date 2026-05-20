@@ -6,13 +6,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:smartgo/core/routes/app_routes.dart';
 import 'package:smartgo/core/di/injection.dart';
+import 'package:smartgo/core/services/storage_service.dart';
 import 'package:smartgo/data/datasources/user_favorites_remote_data_source.dart';
 import 'package:smartgo/domain/entities/route.dart';
 import 'package:smartgo/presentation/blocs/route/route_bloc.dart';
 import 'package:smartgo/presentation/blocs/route/route_event.dart';
 import 'package:smartgo/presentation/blocs/route/route_state.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_bloc.dart';
-import 'package:smartgo/presentation/blocs/auth/auth_event.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_state.dart';
 import 'package:smartgo/presentation/screens/route/route_detail_screen.dart';
 import 'package:smartgo/presentation/widgets/loading_indicator.dart';
@@ -32,8 +32,10 @@ class _RouteListScreenState extends State<RouteListScreen> {
   Timer? _routeSearchDebounce;
   String _routeSearchQuery = '';
   late final UserFavoritesRemoteDataSource _favoritesDataSource;
+  late final StorageService _storageService;
   Set<String> _favoriteRouteIds = <String>{};
   final Set<String> _updatingFavoriteIds = <String>{};
+  bool _isLoadingFavorites = false;
 
   @override
   void initState() {
@@ -41,6 +43,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
     _scrollController.addListener(_onScroll);
     _favoritesDataSource =
         UserFavoritesRemoteDataSource(client: getIt<http.Client>());
+    _storageService = getIt<StorageService>();
 
     // Always fetch all routes on enter (legacy behavior).
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -48,7 +51,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
             FetchAllRoutesEvent(
               limit: 200,
               direction: RouteDirection.both,
-              routeCode: _routeSearchQuery,
+              search: _routeSearchQuery,
             ),
           );
       _syncFavoritesFromAuth(context.read<AuthBloc>().state);
@@ -71,12 +74,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
 
   void _syncFavoritesFromAuth(AuthState state) {
     if (state is AuthAuthenticated) {
-      final next = state.user.favoriteRouteIds.toSet();
-      if (!setEquals(next, _favoriteRouteIds)) {
-        setState(() {
-          _favoriteRouteIds = next;
-        });
-      }
+      _loadFavoritesFromUser(state);
       return;
     }
 
@@ -94,38 +92,54 @@ class _RouteListScreenState extends State<RouteListScreen> {
 
     final authState = context.read<AuthBloc>().state;
     if (authState is! AuthAuthenticated) {
-      _showSnack('Vui long dang nhap de luu yeu thich', isError: true);
+      _showSnack('Vui lòng đăng nhập để lưu yêu thích', isError: true);
       return;
     }
 
-    final currentRouteIds = authState.user.favoriteRouteIds;
-    final currentStationIds = authState.user.favoriteStationIds;
-    final nextRouteIds = currentRouteIds.toSet();
-    final wasFavorite = nextRouteIds.contains(route.id);
-
-    if (wasFavorite) {
-      nextRouteIds.remove(route.id);
-    } else {
-      nextRouteIds.add(route.id);
-    }
+    List<String> currentRouteIds = const [];
+    List<String> currentStationIds = const [];
+    final nextRouteIds = <String>{};
+    bool wasFavorite = false;
 
     setState(() {
-      _favoriteRouteIds = nextRouteIds;
       _updatingFavoriteIds.add(route.id);
     });
 
     try {
+      final accessToken = _resolveAccessToken(authState);
+      final user = await _favoritesDataSource.getUserById(
+        userId: authState.user.id,
+        accessToken: accessToken,
+      );
+      currentRouteIds = user.favoriteRouteIds;
+      currentStationIds = user.favoriteStationIds;
+      nextRouteIds
+        ..clear()
+        ..addAll(currentRouteIds);
+      wasFavorite = nextRouteIds.contains(route.id);
+
+      if (wasFavorite) {
+        nextRouteIds.remove(route.id);
+      } else {
+        nextRouteIds.add(route.id);
+      }
+
+      if (mounted) {
+        setState(() {
+          _favoriteRouteIds = nextRouteIds;
+        });
+      }
       await _favoritesDataSource.updateFavorites(
         userId: authState.user.id,
         favoriteRouteIds: nextRouteIds.toList(),
         favoriteStationIds: currentStationIds,
+        accessToken: accessToken,
       );
       if (!mounted) {
         return;
       }
-      context.read<AuthBloc>().add(const GetCurrentUserEvent());
       _showSnack(
-        wasFavorite ? 'Da bo tuyet yeu thich' : 'Da luu tuyen yeu thich',
+        wasFavorite ? 'Đã bỏ tuyến yêu thích' : 'Đã lưu tuyến yêu thích',
       );
     } catch (error) {
       if (!mounted) {
@@ -134,7 +148,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
       setState(() {
         _favoriteRouteIds = currentRouteIds.toSet();
       });
-      _showSnack('Khong cap nhat duoc yeu thich: $error', isError: true);
+      _showSnack('Không cập nhật được yêu thích: $error', isError: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -142,6 +156,38 @@ class _RouteListScreenState extends State<RouteListScreen> {
         });
       }
     }
+  }
+
+  Future<void> _loadFavoritesFromUser(AuthAuthenticated authState) async {
+    if (_isLoadingFavorites) {
+      return;
+    }
+
+    _isLoadingFavorites = true;
+    try {
+      final accessToken = _resolveAccessToken(authState);
+      final user = await _favoritesDataSource.getUserById(
+        userId: authState.user.id,
+        accessToken: accessToken,
+      );
+      final next = user.favoriteRouteIds.toSet();
+      if (mounted && !setEquals(next, _favoriteRouteIds)) {
+        setState(() {
+          _favoriteRouteIds = next;
+        });
+      }
+    } catch (_) {
+      // Ignore favorites sync errors.
+    } finally {
+      _isLoadingFavorites = false;
+    }
+  }
+
+  String? _resolveAccessToken(AuthAuthenticated authState) {
+    if (authState.accessToken.isNotEmpty) {
+      return authState.accessToken;
+    }
+    return _storageService.getAuthToken();
   }
 
   bool get _isBottom {
@@ -155,7 +201,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
     context.read<RouteBloc>().add(
           RefreshRoutesEvent(
             direction: RouteDirection.both,
-            routeCode: _routeSearchQuery,
+            search: _routeSearchQuery,
           ),
         );
   }
@@ -187,7 +233,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
             page: 1,
             limit: 200,
             direction: RouteDirection.both,
-            routeCode: _routeSearchQuery,
+            search: _routeSearchQuery,
           ),
         );
   }
@@ -296,7 +342,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
                           style: const TextStyle(
                               fontSize: 14, color: Color(0xFF1E293B)),
                           decoration: const InputDecoration(
-                            hintText: 'Tìm theo mã tuyến (VD: 08, 150)…',
+                            hintText:
+                                'Tìm theo mã hoặc tên tuyến (VD: 08, 150)…',
                             hintStyle: TextStyle(color: Color(0xFF94A3B8)),
                             border: InputBorder.none,
                           ),

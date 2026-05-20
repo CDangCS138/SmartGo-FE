@@ -654,21 +654,21 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
               child: Column(
                 children: [
                   FloatingActionButton.small(
-                    heroTag: 'zoom_in',
+                    heroTag: 'live_map_zoom_in',
                     backgroundColor: scheme.surface,
                     onPressed: () => _zoomBy(1),
                     child: Icon(MapIcons.zoomIn, color: scheme.primary),
                   ),
                   const SizedBox(height: 8),
                   FloatingActionButton.small(
-                    heroTag: 'zoom_out',
+                    heroTag: 'live_map_zoom_out',
                     backgroundColor: scheme.surface,
                     onPressed: () => _zoomBy(-1),
                     child: Icon(MapIcons.zoomOut, color: scheme.primary),
                   ),
                   const SizedBox(height: 8),
                   FloatingActionButton.small(
-                    heroTag: 'my_location',
+                    heroTag: 'live_map_my_location',
                     backgroundColor: scheme.surface,
                     onPressed: _focusOnCurrentLocation,
                     child: _isLoadingLocation
@@ -684,7 +684,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                   ),
                   const SizedBox(height: 8),
                   FloatingActionButton.small(
-                    heroTag: 'nearby_stations',
+                    heroTag: 'live_map_nearby_stations',
                     backgroundColor:
                         _showNearbyOnly ? scheme.primary : scheme.surface,
                     onPressed: _showNearbyDialog,

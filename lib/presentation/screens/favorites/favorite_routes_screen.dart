@@ -6,9 +6,13 @@ import 'package:http/http.dart' as http;
 import '../../../core/constants/ui_constants.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/routes/app_routes.dart';
+import '../../../core/services/storage_service.dart';
 import '../../../data/datasources/favorite_routes_remote_data_source.dart';
+import '../../../data/datasources/user_favorites_remote_data_source.dart';
 import '../../../data/models/favorite_route_model.dart';
 import '../../../domain/entities/path_finding.dart';
+import '../../blocs/auth/auth_bloc.dart';
+import '../../blocs/auth/auth_state.dart';
 import '../../blocs/station/station_bloc.dart';
 import '../../blocs/station/station_state.dart';
 import '../../widgets/loading_indicator.dart';
@@ -22,6 +26,8 @@ class FavoriteRoutesScreen extends StatefulWidget {
 
 class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
   late final FavoriteRoutesRemoteDataSource _dataSource;
+  late final UserFavoritesRemoteDataSource _favoritesDataSource;
+  late final StorageService _storageService;
   bool _isLoading = false;
   String? _error;
   List<FavoriteRouteModel> _favorites = const [];
@@ -31,6 +37,9 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
   void initState() {
     super.initState();
     _dataSource = FavoriteRoutesRemoteDataSource(client: getIt<http.Client>());
+    _favoritesDataSource =
+        UserFavoritesRemoteDataSource(client: getIt<http.Client>());
+    _storageService = getIt<StorageService>();
     _loadFavorites();
   }
 
@@ -48,7 +57,35 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
       }
     });
 
+    final authState = context.read<AuthBloc>().state;
+    if (authState is! AuthAuthenticated) {
+      setState(() {
+        _favorites = const [];
+        _isLoading = false;
+        _error = 'Vui lòng đăng nhập để xem tuyến yêu thích.';
+      });
+      return;
+    }
+
     try {
+      final accessToken = _resolveAccessToken(authState);
+      final user = await _favoritesDataSource.getUserById(
+        userId: authState.user.id,
+        accessToken: accessToken,
+      );
+      final favoriteIds = user.favoriteRouteIds;
+
+      if (favoriteIds.isEmpty) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _favorites = const [];
+          _isLoading = false;
+        });
+        return;
+      }
+
       final response = await _dataSource.getFavoriteRoutes(
         page: 1,
         limit: 200,
@@ -56,8 +93,18 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
       if (!mounted) {
         return;
       }
+      final favoritesById = {
+        for (final item in response.data) item.id: item,
+      };
+      final orderedFavorites = <FavoriteRouteModel>[];
+      for (final id in favoriteIds) {
+        final match = favoritesById[id];
+        if (match != null) {
+          orderedFavorites.add(match);
+        }
+      }
       setState(() {
-        _favorites = response.data;
+        _favorites = orderedFavorites;
         _isLoading = false;
       });
     } catch (error) {
@@ -80,16 +127,16 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Xoa tuyen yeu thich'),
-          content: Text('Ban chac chan muon xoa "${favorite.routeName}"?'),
+          title: const Text('Xóa tuyến yêu thích'),
+          content: Text('Bạn chắc chắn muốn xóa "${favorite.routeName}"?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Huy'),
+              child: const Text('Hủy'),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Xoa'),
+              child: const Text('Xóa'),
             ),
           ],
         );
@@ -105,7 +152,26 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
     });
 
     try {
+      final authState = context.read<AuthBloc>().state;
+      if (authState is! AuthAuthenticated) {
+        _showError('Vui lòng đăng nhập để xóa tuyến yêu thích.');
+        return;
+      }
+
+      final accessToken = _resolveAccessToken(authState);
+      final user = await _favoritesDataSource.getUserById(
+        userId: authState.user.id,
+        accessToken: accessToken,
+      );
+      final nextRouteIds = user.favoriteRouteIds.toSet()..remove(favorite.id);
+
       await _dataSource.deleteFavoriteRoute(id: favorite.id);
+      await _favoritesDataSource.updateFavorites(
+        userId: authState.user.id,
+        favoriteRouteIds: nextRouteIds.toList(),
+        favoriteStationIds: user.favoriteStationIds,
+        accessToken: accessToken,
+      );
       if (!mounted) {
         return;
       }
@@ -113,12 +179,12 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
         _favorites =
             _favorites.where((item) => item.id != favorite.id).toList();
       });
-      _showInfo('Da xoa tuyen yeu thich');
+      _showInfo('Đã xóa tuyến yêu thích');
     } catch (error) {
       if (!mounted) {
         return;
       }
-      _showError('Khong the xoa: $error');
+      _showError('Không thể xóa: $error');
     } finally {
       if (!mounted) {
         // ignore: control_flow_in_finally
@@ -151,7 +217,7 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
 
   String _resolveStationLabel(String? stationCode, StationState stationState) {
     if (stationCode == null || stationCode.trim().isEmpty) {
-      return 'Khong ro tram';
+      return 'Không rõ trạm';
     }
 
     if (stationState is StationLoaded) {
@@ -233,7 +299,7 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
                     ),
                     const SizedBox(width: 12),
                     const Text(
-                      'Tuyen yeu thich',
+                      'Tuyến yêu thích',
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 18,
@@ -270,7 +336,7 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
                             const SizedBox(height: 16),
                             ElevatedButton(
                               onPressed: () => _loadFavorites(refresh: true),
-                              child: const Text('Thu lai'),
+                              child: const Text('Thử lại'),
                             ),
                           ],
                         ),
@@ -287,7 +353,7 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
                                 ),
                                 SizedBox(height: 12),
                                 Text(
-                                  'Chua co tuyen yeu thich',
+                                  'Chưa có tuyến yêu thích',
                                   style: TextStyle(
                                     color: Color(0xFF64748B),
                                     fontSize: 14,
@@ -315,7 +381,7 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
                                         ? _formatCoordinates(
                                             favorite.fromCoordinates!,
                                           )
-                                        : 'Diem A';
+                                        : 'Điểm A';
                                 final toLabel = isStation
                                     ? _resolveStationLabel(
                                         favorite.toStationCode,
@@ -325,7 +391,7 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
                                         ? _formatCoordinates(
                                             favorite.toCoordinates!,
                                           )
-                                        : 'Diem B';
+                                        : 'Điểm B';
                                 final isDeleting =
                                     _deletingIds.contains(favorite.id);
 
@@ -417,8 +483,8 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
                                                       ),
                                                       child: Text(
                                                         isStation
-                                                            ? 'Tram'
-                                                            : 'Toa do',
+                                                            ? 'Trạm'
+                                                            : 'Tọa độ',
                                                         style: TextStyle(
                                                           fontSize: 11,
                                                           fontWeight:
@@ -514,5 +580,12 @@ class _FavoriteRoutesScreenState extends State<FavoriteRoutesScreen> {
         ),
       ],
     );
+  }
+
+  String? _resolveAccessToken(AuthAuthenticated authState) {
+    if (authState.accessToken.isNotEmpty) {
+      return authState.accessToken;
+    }
+    return _storageService.getAuthToken();
   }
 }

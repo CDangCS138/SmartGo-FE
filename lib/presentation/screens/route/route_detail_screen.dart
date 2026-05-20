@@ -7,12 +7,12 @@ import 'package:http/http.dart' as http;
 import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/maps/app_tile_layer.dart';
 import 'package:smartgo/core/services/route_geometry_service.dart';
+import 'package:smartgo/core/services/storage_service.dart';
 import 'package:smartgo/data/datasources/user_favorites_remote_data_source.dart';
 import 'package:smartgo/domain/entities/route.dart';
 import 'package:smartgo/domain/entities/station.dart';
 import 'package:smartgo/domain/repositories/route_repository.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_bloc.dart';
-import 'package:smartgo/presentation/blocs/auth/auth_event.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_state.dart';
 import 'package:smartgo/presentation/blocs/station/station_bloc.dart';
 import 'package:smartgo/presentation/blocs/station/station_event.dart';
@@ -43,9 +43,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       getIt<RouteGeometryService>();
   final RouteRepository _routeRepository = getIt<RouteRepository>();
   late final UserFavoritesRemoteDataSource _favoritesDataSource;
+  late final StorageService _storageService;
   late final String _favoriteRouteId;
   bool _isFavorite = false;
   bool _isUpdatingFavorite = false;
+  bool _isSyncingFavorite = false;
 
   late BusRoute _route;
   BusRoute? _forwardRoute;
@@ -67,6 +69,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _favoriteRouteId = widget.route.id;
     _favoritesDataSource =
         UserFavoritesRemoteDataSource(client: getIt<http.Client>());
+    _storageService = getIt<StorageService>();
     _seedDirectionRoutesFromCurrent();
     _tabController = TabController(length: 3, vsync: this);
     if (_forwardCodes.isEmpty || _backwardCodes.isEmpty) {
@@ -84,12 +87,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   void _syncFavoriteFromAuth(AuthState state) {
     if (state is AuthAuthenticated) {
-      final isFavorite = state.user.favoriteRouteIds.contains(_favoriteRouteId);
-      if (isFavorite != _isFavorite) {
-        setState(() {
-          _isFavorite = isFavorite;
-        });
-      }
+      _loadFavoriteFromUser(state);
       return;
     }
 
@@ -111,32 +109,48 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
 
-    final currentRouteIds = authState.user.favoriteRouteIds;
-    final currentStationIds = authState.user.favoriteStationIds;
-    final nextRouteIds = currentRouteIds.toSet();
-    final wasFavorite = nextRouteIds.contains(_favoriteRouteId);
-
-    if (wasFavorite) {
-      nextRouteIds.remove(_favoriteRouteId);
-    } else {
-      nextRouteIds.add(_favoriteRouteId);
-    }
+    List<String> currentRouteIds = const [];
+    List<String> currentStationIds = const [];
+    final nextRouteIds = <String>{};
+    bool wasFavorite = false;
 
     setState(() {
       _isUpdatingFavorite = true;
-      _isFavorite = !wasFavorite;
     });
 
     try {
+      final accessToken = _resolveAccessToken(authState);
+      final user = await _favoritesDataSource.getUserById(
+        userId: authState.user.id,
+        accessToken: accessToken,
+      );
+      currentRouteIds = user.favoriteRouteIds;
+      currentStationIds = user.favoriteStationIds;
+      nextRouteIds
+        ..clear()
+        ..addAll(currentRouteIds);
+      wasFavorite = nextRouteIds.contains(_favoriteRouteId);
+
+      if (wasFavorite) {
+        nextRouteIds.remove(_favoriteRouteId);
+      } else {
+        nextRouteIds.add(_favoriteRouteId);
+      }
+
+      if (mounted) {
+        setState(() {
+          _isFavorite = !wasFavorite;
+        });
+      }
       await _favoritesDataSource.updateFavorites(
         userId: authState.user.id,
         favoriteRouteIds: nextRouteIds.toList(),
         favoriteStationIds: currentStationIds,
+        accessToken: accessToken,
       );
       if (!mounted) {
         return;
       }
-      context.read<AuthBloc>().add(const GetCurrentUserEvent());
       _showSnack(
         wasFavorite ? 'Đã bỏ tuyến yêu thích' : 'Đã lưu tuyến yêu thích',
       );
@@ -155,6 +169,38 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         });
       }
     }
+  }
+
+  Future<void> _loadFavoriteFromUser(AuthAuthenticated authState) async {
+    if (_isSyncingFavorite) {
+      return;
+    }
+
+    _isSyncingFavorite = true;
+    try {
+      final accessToken = _resolveAccessToken(authState);
+      final user = await _favoritesDataSource.getUserById(
+        userId: authState.user.id,
+        accessToken: accessToken,
+      );
+      final isFavorite = user.favoriteRouteIds.contains(_favoriteRouteId);
+      if (mounted && isFavorite != _isFavorite) {
+        setState(() {
+          _isFavorite = isFavorite;
+        });
+      }
+    } catch (_) {
+      // Ignore sync errors.
+    } finally {
+      _isSyncingFavorite = false;
+    }
+  }
+
+  String? _resolveAccessToken(AuthAuthenticated authState) {
+    if (authState.accessToken.isNotEmpty) {
+      return authState.accessToken;
+    }
+    return _storageService.getAuthToken();
   }
 
   void _showSnack(String message, {bool isError = false}) {
@@ -196,7 +242,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
 
-    // API with routeCode returns 2 routes: first is outbound, second is return.
+    // API with search=routeCode returns 2 routes: first is outbound, second is return.
     final orderedForward = routes.first;
     final orderedBackward = routes.length > 1 ? routes[1] : null;
 
@@ -226,7 +272,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final listResult = await _routeRepository.getAllRoutes(
         page: 1,
         limit: 20,
-        routeCode: _route.routeCode,
+        search: _route.routeCode,
       );
 
       if (!mounted) {
@@ -1115,14 +1161,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         '${_route.totalDistance.toStringAsFixed(1)} km'),
                     _buildInfoRow(Icons.attach_money_rounded, 'Giá vé',
                         _route.baseFare.join(' - ')),
-                    _buildInfoRow(
-                      Icons.accessible_rounded,
-                      'Hỗ trợ xe lăn',
-                      _route.isWheelchairAccessible ? 'Có' : 'Không',
-                      _route.isWheelchairAccessible
-                          ? const Color(0xFF0D9488)
-                          : const Color(0xFF64748B),
-                    ),
                     const SizedBox(height: 8),
                   ],
                 ),

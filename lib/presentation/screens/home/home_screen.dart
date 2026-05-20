@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/routes/app_routes.dart';
 import '../../../domain/entities/route.dart';
-import '../../../domain/entities/station.dart';
 import '../../../core/constants/ui_constants.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/auth/auth_state.dart';
@@ -46,17 +45,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final authState = context.watch<AuthBloc>().state;
     final routeState = context.watch<RouteBloc>().state;
-    final stationState = context.watch<StationBloc>().state;
 
     final greetingName =
         authState is AuthAuthenticated ? authState.user.name : 'Khách';
 
     final routes = _extractRoutes(routeState);
-    final activeStations = stationState is StationLoaded
-        ? stationState.stations
-            .where((s) => s.status == StationStatus.ACTIVE)
-            .toList()
-        : const <Station>[];
 
     return Scaffold(
       backgroundColor: UIConstants.scaffoldBackground,
@@ -71,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildSearch(),
                 _buildFavoriteRoutesShortcut(),
                 _buildShortcuts(),
-                _buildLiveMapPreview(activeStations),
+                _buildLiveMapPreview(),
                 _buildPopularRoutes(routes),
                 const SizedBox(height: 20),
               ]),
@@ -403,7 +396,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildLiveMapPreview(List<Station> activeStations) {
+  Widget _buildLiveMapPreview() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
       child: Column(
@@ -432,11 +425,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          AppearMotion(
-            delay: const Duration(milliseconds: 170),
-            child: LiveMapCard(
-              stations: activeStations,
-            ),
+          const AppearMotion(
+            delay: Duration(milliseconds: 170),
+            child: LiveMapCard(),
           ),
         ],
       ),
