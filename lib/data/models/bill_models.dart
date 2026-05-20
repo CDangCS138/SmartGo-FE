@@ -1,3 +1,23 @@
+class BillRoute {
+  final String id;
+  final String routeCode;
+  final String routeName;
+
+  const BillRoute({
+    required this.id,
+    required this.routeCode,
+    required this.routeName,
+  });
+
+  factory BillRoute.fromJson(Map<String, dynamic> json) {
+    return BillRoute(
+      id: _readString(json['_id'] ?? json['id']),
+      routeCode: _readString(json['routeCode'] ?? json['route_code']),
+      routeName: _readString(json['routeName'] ?? json['route_name']),
+    );
+  }
+}
+
 class BillCreateRequest {
   final String routeId;
   final String ticketType;
@@ -74,6 +94,7 @@ class BillModel {
   final String? paymentTransactionId;
   final String? txnRef;
   final String? routeId;
+  final BillRoute? route;
   final DateTime? createdAt;
   final DateTime? paidAt;
   final DateTime? cancelledAt;
@@ -94,6 +115,7 @@ class BillModel {
     this.paymentTransactionId,
     this.txnRef,
     this.routeId,
+    this.route,
     this.createdAt,
     this.paidAt,
     this.cancelledAt,
@@ -117,6 +139,9 @@ class BillModel {
           _readStringOrNull(data['paymentTransactionId'] ?? data['paymentId']),
       txnRef: _readStringOrNull(data['txnRef'] ?? data['txn_ref']),
       routeId: _readStringOrNull(data['routeId'] ?? data['route_id']),
+      route: data['route'] != null && data['route'] is Map
+          ? BillRoute.fromJson(Map<String, dynamic>.from(data['route']))
+          : null,
       createdAt: _tryParseDate(data['createdAt'] ?? data['created_at']),
       paidAt: _tryParseDate(data['paidAt'] ?? data['paid_at']),
       cancelledAt: _tryParseDate(data['cancelledAt'] ?? data['cancelled_at']),

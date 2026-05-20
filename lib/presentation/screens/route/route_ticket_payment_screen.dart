@@ -287,7 +287,7 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.route.routeName,
+                        _stripRouteNamePrefix(widget.route.routeName),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -926,6 +926,10 @@ class _RouteTicketPaymentScreenState extends State<RouteTicketPaymentScreen> {
 
   String _formatVnd(int amount) {
     return '${_currencyFormat.format(amount)}đ';
+  }
+
+  String _stripRouteNamePrefix(String routeName) {
+    return routeName.replaceFirst(RegExp(r'^(Lượt đi|Lượt về):\s*'), '');
   }
 
   Future<void> _openPaymentPage(Uri paymentUri) async {

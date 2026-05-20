@@ -396,14 +396,34 @@ class _BillsScreenState extends State<BillsScreen> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    _ticketTypeLabel(ticketType).toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
-                      color: UIConstants.textPrimary,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _ticketTypeLabel(ticketType).toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                          color: UIConstants.textPrimary,
+                        ),
+                      ),
+                      if (bill.route?.routeName != null &&
+                          bill.route!.routeName.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            _stripRouteNamePrefix(bill.route!.routeName),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: UIConstants.textSecondary,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 _buildStatusPill(
@@ -673,13 +693,26 @@ class _BillsScreenState extends State<BillsScreen> {
                         color: UIConstants.textPrimary,
                       ),
                     ),
+                    if (bill.route?.routeName != null &&
+                        bill.route!.routeName.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          _stripRouteNamePrefix(bill.route!.routeName),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: UIConstants.textSecondary,
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 4),
                     Text(
                       _formatBillDate(bill),
                       style: const TextStyle(
-                        color: UIConstants.textSecondary,
-                        fontSize: 12,
-                      ),
+                          color: UIConstants.textSecondary, fontSize: 12),
                     ),
                   ],
                 ),
@@ -840,6 +873,10 @@ class _BillsScreenState extends State<BillsScreen> {
 
   String _formatDateTime(DateTime dateTime) {
     return DateFormat('dd/MM/yyyy HH:mm').format(dateTime.toLocal());
+  }
+
+  String _stripRouteNamePrefix(String routeName) {
+    return routeName.replaceFirst(RegExp(r'^(Lượt đi|Lượt về):\s*'), '');
   }
 
   String _formatBillDate(BillModel bill) {
