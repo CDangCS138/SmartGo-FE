@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:mime/mime.dart';
 
 import '../../core/constants/app_env.dart';
 import '../models/users_models.dart';
@@ -186,10 +188,18 @@ class UsersRemoteDataSource {
 
   Future<http.MultipartFile> _avatarPart(XFile avatar) async {
     final bytes = await avatar.readAsBytes();
+    final mimeType = lookupMimeType(
+          avatar.name,
+          headerBytes: bytes.take(12).toList(),
+        ) ??
+        avatar.mimeType ??
+        'image/jpeg';
+
     return http.MultipartFile.fromBytes(
       'avatar',
       Uint8List.fromList(bytes),
       filename: avatar.name,
+      contentType: MediaType.parse(mimeType),
     );
   }
 }
