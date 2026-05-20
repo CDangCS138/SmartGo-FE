@@ -18,6 +18,7 @@ import '../../presentation/screens/profile/profile_screen.dart';
 import '../../presentation/screens/route/route_list_screen.dart';
 import '../../presentation/screens/favorites/favorite_routes_screen.dart';
 import '../../presentation/screens/bills/bills_screen.dart';
+import '../../presentation/screens/notifications/notifications_screen.dart';
 import '../../presentation/screens/route/payment_callback_screen.dart';
 import '../../presentation/screens/chatbot/chatbot_screen.dart';
 import '../../presentation/screens/chatbot/chatbot_admin_screen.dart';
@@ -171,6 +172,11 @@ class AppRouter {
         path: AppRoutes.bills,
         name: 'bills',
         builder: (context, state) => const BillsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.notifications,
+        name: 'notifications',
+        builder: (context, state) => const NotificationsScreen(),
       ),
       GoRoute(
         path: AppRoutes.busSimulations,
