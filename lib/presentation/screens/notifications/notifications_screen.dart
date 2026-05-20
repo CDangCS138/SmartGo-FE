@@ -323,15 +323,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     shape: BoxShape.circle,
                   ),
                 ),
-                const SizedBox(width: 6),
-                const Text(
-                  'Chưa đọc',
-                  style: TextStyle(
-                    color: UIConstants.primaryTeal,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                // const SizedBox(width: 6),
+                // const Text(
+                //   'Chưa đọc',
+                //   style: TextStyle(
+                //     color: UIConstants.primaryTeal,
+                //     fontSize: 12,
+                //     fontWeight: FontWeight.w600,
+                //   ),
+                // ),
               ],
             ),
           ],
