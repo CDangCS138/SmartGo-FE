@@ -11,6 +11,7 @@ import 'package:smartgo/core/services/storage_service.dart';
 import 'package:smartgo/core/utils/open_external_url.dart';
 import 'package:smartgo/data/datasources/bills_remote_data_source.dart';
 import 'package:smartgo/data/datasources/payment_remote_data_source.dart';
+import 'package:smartgo/data/models/bill_models.dart';
 import 'package:smartgo/data/models/payment_response_models.dart';
 
 class PaymentCallbackScreen extends StatefulWidget {
@@ -34,6 +35,8 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
   VnpayReturnResponse? _verifyResponse;
   bool _hasRedirected = false;
   bool _hasUpdatedBillStatus = false;
+  bool _isFetchingBill = false;
+  BillModel? _bill;
 
   bool get _isMomo => widget.provider.toLowerCase() == 'momo';
 
@@ -78,6 +81,7 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
       });
 
       await _updateBillStatusIfNeeded();
+      await _fetchBillIfNeeded();
       _maybeRedirectToBills();
     } catch (e) {
       if (!mounted) {
@@ -89,6 +93,7 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
       });
 
       await _updateBillStatusIfNeeded();
+      await _fetchBillIfNeeded();
       _maybeRedirectToBills();
     }
   }
@@ -140,6 +145,55 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
       await storage.removeKey(AppConstants.pendingBillIdKey);
     } catch (_) {
       // Avoid retry loops on transient errors.
+    }
+  }
+
+  Future<void> _fetchBillIfNeeded() async {
+    if (!mounted || _isFetchingBill) {
+      return;
+    }
+
+    if (!_isPaymentSuccess()) {
+      return;
+    }
+
+    final storage = getIt<StorageService>();
+    final billId = _resolveBillId(storage);
+    if (billId == null || billId.isEmpty) {
+      return;
+    }
+
+    final accessToken = storage.getAuthToken();
+    if (accessToken == null || accessToken.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isFetchingBill = true;
+    });
+
+    try {
+      final billsDataSource = BillsRemoteDataSource(
+        client: getIt<http.Client>(),
+      );
+      final bill = await billsDataSource.getBillById(
+        billId,
+        accessToken: accessToken,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _bill = bill;
+      });
+    } catch (_) {
+      // Ignore fetch errors to avoid blocking the callback view.
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFetchingBill = false;
+        });
+      }
     }
   }
 
@@ -224,24 +278,18 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
     return null;
   }
 
-  String? _resolveQrData() {
-    return _firstNonEmpty([
-      _verifyResponse?.qrData,
-      widget.callbackParams['qrData'],
-      widget.callbackParams['qr_code'],
-      widget.callbackParams['qrCode'],
-      widget.callbackParams['ticketCode'],
-      widget.callbackParams['ticket_code'],
-      _callbackTxnRef(),
-      _callbackTransactionNo(),
-    ]);
+  TicketModel? _primaryTicket() {
+    final tickets = _bill?.tickets ?? const <TicketModel>[];
+    if (tickets.isEmpty) {
+      return null;
+    }
+    return tickets.first;
   }
 
   Widget _buildQrSection({
     required bool effectiveSuccess,
-    required String? qrData,
   }) {
-    if (_isVerifying) {
+    if (_isVerifying || _isFetchingBill) {
       return const _SectionCard(
         title: 'Mã QR lên tàu',
         children: [
@@ -261,7 +309,8 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
       );
     }
 
-    if (qrData == null) {
+    final ticket = _primaryTicket();
+    if (ticket == null) {
       return const _SectionCard(
         title: 'Mã QR lên tàu',
         children: [
@@ -273,30 +322,105 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
     return _SectionCard(
       title: 'Mã QR lên tàu',
       children: [
-        Center(
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outline,
-              ),
-            ),
-            child: QrImageView(
-              data: qrData,
-              version: QrVersions.auto,
-              size: 220,
-              backgroundColor: Colors.white,
-            ),
-          ),
-        ),
+        Center(child: _buildTicketQr(ticket)),
         const SizedBox(height: 12),
+        Text(
+          ticket.ticketCode,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 6),
         const Text(
           'Dùng mã này để quét khi lên tàu.',
           textAlign: TextAlign.center,
         ),
+        if ((_bill?.tickets.length ?? 0) > 1) ...[
+          const SizedBox(height: 8),
+          const Text(
+            'Các vé còn lại',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF64748B),
+            ),
+          ),
+          const SizedBox(height: 4),
+          ..._bill!.tickets.skip(1).map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    item.ticketCode,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+        ],
       ],
+    );
+  }
+
+  Widget _buildTicketQr(TicketModel ticket) {
+    final qrImageUrl = ticket.qrImageUrl?.trim();
+    if (qrImageUrl != null && qrImageUrl.isNotEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outline,
+          ),
+        ),
+        child: Image.network(
+          qrImageUrl,
+          width: 220,
+          height: 220,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            return const Text(
+              'Không tải được mã QR',
+              style: TextStyle(color: Color(0xFF94A3B8)),
+            );
+          },
+        ),
+      );
+    }
+
+    final qrPayload = ticket.qrPayload?.trim();
+    if (qrPayload != null && qrPayload.isNotEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outline,
+          ),
+        ),
+        child: QrImageView(
+          data: qrPayload,
+          version: QrVersions.auto,
+          size: 220,
+          backgroundColor: Colors.white,
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline,
+        ),
+      ),
+      child: const Text(
+        'Chưa có mã QR',
+        style: TextStyle(color: Color(0xFF94A3B8)),
+      ),
     );
   }
 
@@ -351,13 +475,17 @@ class _PaymentCallbackScreenState extends State<PaymentCallbackScreen> {
             const SizedBox(height: 16),
             _buildQrSection(
               effectiveSuccess: effectiveSuccess,
-              qrData: _resolveQrData(),
             ),
             const SizedBox(height: 16),
             _SectionCard(
               title: 'Tóm tắt callback',
               children: [
                 _DetailRow(label: 'Provider', value: widget.provider),
+                if (_primaryTicket() != null)
+                  _DetailRow(
+                    label: 'Mã vé',
+                    value: _primaryTicket()!.ticketCode,
+                  ),
                 _DetailRow(label: 'Mã phản hồi', value: _callbackCode()),
                 _DetailRow(label: 'Mã tham chiếu', value: _callbackTxnRef()),
                 _DetailRow(

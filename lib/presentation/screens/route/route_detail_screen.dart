@@ -23,10 +23,12 @@ import 'package:smartgo/presentation/screens/home/widgets/home_navigation_bar.da
 
 class RouteDetailScreen extends StatefulWidget {
   final BusRoute route;
+  final String? routeCode;
 
   const RouteDetailScreen({
     super.key,
     required this.route,
+    this.routeCode,
   });
 
   @override
@@ -73,7 +75,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _seedDirectionRoutesFromCurrent();
     _tabController = TabController(length: 3, vsync: this);
     if (_forwardCodes.isEmpty || _backwardCodes.isEmpty) {
-      _fetchFullRoute();
+      final routeCode = _resolveRouteCodeForRouteFetch();
+      if (routeCode.isNotEmpty) {
+        _fetchRouteByRouteCode(routeCode);
+      } else {
+        _loadStations();
+      }
     } else {
       _loadStations();
     }
@@ -237,75 +244,30 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return _route.routeBackwardCodes;
   }
 
-  void _applyDirectionalRoutes(List<BusRoute> routes) {
-    if (routes.isEmpty) {
-      return;
+  String _resolveRouteCodeForRouteFetch() {
+    final explicit = widget.routeCode?.trim() ?? '';
+    if (explicit.isNotEmpty) {
+      return explicit;
     }
 
-    // API with search=routeCode returns 2 routes: first is outbound, second is return.
-    final orderedForward = routes.first;
-    final orderedBackward = routes.length > 1 ? routes[1] : null;
-
-    BusRoute? forwardByCodes;
-    BusRoute? backwardByCodes;
-
-    for (final route in routes) {
-      if (forwardByCodes == null && route.routeForwardCodes.isNotEmpty) {
-        forwardByCodes = route;
-      }
-      if (backwardByCodes == null && route.routeBackwardCodes.isNotEmpty) {
-        backwardByCodes = route;
-      }
+    final code = _route.routeCode.trim();
+    if (code.isNotEmpty) {
+      return code;
     }
 
-    _forwardRoute = forwardByCodes ?? orderedForward;
-    _backwardRoute = backwardByCodes ?? orderedBackward;
-    _route = _forwardRoute ?? _route;
+    return '';
   }
 
-  Future<void> _fetchFullRoute() async {
+  Future<void> _fetchRouteByRouteCode(String routeCode) async {
     setState(() {
       _isLoadingRoute = true;
     });
 
-    if (_route.routeCode.trim().isNotEmpty) {
-      final listResult = await _routeRepository.getAllRoutes(
-        page: 1,
-        limit: 20,
-        search: _route.routeCode,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      listResult.fold(
-        (failure) {
-          setState(() {
-            _isLoadingRoute = false;
-          });
-          _loadStations();
-        },
-        (routes) {
-          if (routes.isEmpty) {
-            setState(() {
-              _isLoadingRoute = false;
-            });
-            _loadStations();
-            return;
-          }
-
-          setState(() {
-            _applyDirectionalRoutes(routes);
-            _isLoadingRoute = false;
-          });
-          _loadStations();
-        },
-      );
-      return;
-    }
-
-    final result = await _routeRepository.getRouteById(id: _route.id);
+    final result = await _routeRepository.getAllRoutes(
+      page: 1,
+      limit: 200,
+      routeCode: routeCode,
+    );
     if (!mounted) {
       return;
     }
@@ -315,13 +277,58 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         setState(() {
           _isLoadingRoute = false;
         });
-        // Fall back to loading stations with the original route data
         _loadStations();
       },
-      (fullRoute) {
+      (routes) {
+        final matched = routes.where((route) {
+          return route.routeCode.trim() == routeCode;
+        }).toList();
+
+        if (matched.isEmpty) {
+          setState(() {
+            _isLoadingRoute = false;
+          });
+          _loadStations();
+          return;
+        }
+
+        BusRoute? forward;
+        BusRoute? backward;
+        BusRoute? base;
+
+        for (final route in matched) {
+          base ??= route;
+          final hasForward = route.routeForwardCodes.isNotEmpty;
+          final hasBackward = route.routeBackwardCodes.isNotEmpty;
+
+          if (hasForward && !hasBackward) {
+            forward ??= route;
+          } else if (hasBackward && !hasForward) {
+            backward ??= route;
+          }
+        }
+
+        base ??= forward ?? backward;
+
+        if (base != null) {
+          if (base.routeForwardCodes.isNotEmpty) {
+            forward ??= base;
+          }
+          if (base.routeBackwardCodes.isNotEmpty) {
+            backward ??= base;
+          }
+        }
+
         setState(() {
-          _route = fullRoute;
-          _seedDirectionRoutesFromCurrent();
+          if (forward != null) {
+            _forwardRoute = forward;
+          }
+          if (backward != null) {
+            _backwardRoute = backward;
+          }
+          if (base != null) {
+            _route = base;
+          }
           _isLoadingRoute = false;
         });
         _loadStations();

@@ -18,6 +18,8 @@ class RouteRepositoryImpl implements RouteRepository {
     int limit = 200,
     RouteDirection? direction,
     String search = '',
+    String? routeCode,
+    String? stationCode,
   }) async {
     try {
       final response = await remoteDataSource.getAllRoutes(
@@ -25,6 +27,8 @@ class RouteRepositoryImpl implements RouteRepository {
         limit: limit,
         direction: direction,
         search: search,
+        routeCode: routeCode,
+        stationCode: stationCode,
       );
       return Right(response.data.routes);
     } on ServerException catch (e) {

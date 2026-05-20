@@ -9,6 +9,8 @@ abstract class RouteRepository {
     int limit = 200,
     RouteDirection? direction,
     String search = '',
+    String? routeCode,
+    String? stationCode,
   });
   Future<Either<Failure, BusRoute>> getRouteById({
     required String id,
