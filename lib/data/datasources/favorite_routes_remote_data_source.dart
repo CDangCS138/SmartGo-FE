@@ -33,7 +33,7 @@ class FavoriteRoutesRemoteDataSource {
     final response = await client.get(uri, headers: _jsonHeaders());
     if (response.statusCode != 200) {
       throw _errorFromResponse(
-          response, 'Lay danh sach tuyen yeu thich that bai');
+          response, 'Lấy danh sách tuyến yêu thích thất bại');
     }
 
     final decoded = _decodeBody(response.body);
@@ -50,7 +50,7 @@ class FavoriteRoutesRemoteDataSource {
     );
 
     if (response.statusCode != 201 && response.statusCode != 200) {
-      throw _errorFromResponse(response, 'Luu tuyen yeu thich that bai');
+      throw _errorFromResponse(response, 'Lưu tuyến yêu thích thất bại');
     }
 
     final decoded = _decodeBody(response.body);
@@ -67,11 +67,11 @@ class FavoriteRoutesRemoteDataSource {
     );
 
     if (response.statusCode == 404) {
-      throw const NotFoundException('Khong tim thay tuyen yeu thich');
+      throw const NotFoundException('Không tìm thấy tuyến yêu thích');
     }
 
     if (response.statusCode != 200) {
-      throw _errorFromResponse(response, 'Lay tuyen yeu thich that bai');
+      throw _errorFromResponse(response, 'Lấy tuyến yêu thích thất bại');
     }
 
     final decoded = _decodeBody(response.body);
@@ -88,11 +88,11 @@ class FavoriteRoutesRemoteDataSource {
     );
 
     if (response.statusCode == 404) {
-      throw const NotFoundException('Khong tim thay tuyen yeu thich');
+      throw const NotFoundException('Không tìm thấy tuyến yêu thích');
     }
 
     if (response.statusCode != 200) {
-      throw _errorFromResponse(response, 'Xoa tuyen yeu thich that bai');
+      throw _errorFromResponse(response, 'Xóa tuyến yêu thích thất bại');
     }
   }
 
@@ -112,7 +112,7 @@ class FavoriteRoutesRemoteDataSource {
       return parsed;
     }
 
-    throw const ServerException('Response khong hop le');
+    throw const ServerException('Phản hồi không hợp lệ');
   }
 
   Map<String, dynamic> _extractDataMap(dynamic decoded) {
@@ -123,7 +123,7 @@ class FavoriteRoutesRemoteDataSource {
       }
       return decoded;
     }
-    throw const ServerException('Response khong hop le');
+    throw const ServerException('Phản hồi không hợp lệ');
   }
 
   Exception _errorFromResponse(http.Response response, String fallback) {
@@ -144,7 +144,7 @@ class FavoriteRoutesRemoteDataSource {
     }
 
     if (response.statusCode == 401 || response.statusCode == 403) {
-      return const UnauthorizedException('Chua duoc xac thuc');
+      return const UnauthorizedException('Chưa được xác thực');
     }
 
     return ServerException('$fallback: ${response.statusCode}');

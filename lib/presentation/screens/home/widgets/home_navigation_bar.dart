@@ -16,7 +16,7 @@ class HomeNavigationBar extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: Colors.white,

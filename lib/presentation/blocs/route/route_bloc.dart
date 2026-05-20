@@ -12,7 +12,7 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
   int _currentPage = 1;
   int _totalCount = 0;
   RouteDirection? _currentDirection;
-  String _currentRouteCode = '';
+  String _currentSearch = '';
   List<BusRoute> _allRoutes = [];
   RouteBloc({required this.repository}) : super(const RouteInitial()) {
     on<FetchAllRoutesEvent>(_onFetchAllRoutes);
@@ -27,13 +27,13 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
   ) async {
     emit(const RouteLoading());
     _currentDirection = event.direction;
-    _currentRouteCode = event.routeCode.trim();
+    _currentSearch = event.search.trim();
 
     final result = await repository.getAllRoutes(
       page: event.page,
       limit: event.limit,
       direction: _currentDirection,
-      routeCode: _currentRouteCode,
+      search: _currentSearch,
     );
     await result.fold(
       (failure) async {
@@ -88,8 +88,8 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
     _currentPage = 1;
     _allRoutes = [];
     _currentDirection = event.direction ?? _currentDirection;
-    if (event.routeCode != null) {
-      _currentRouteCode = event.routeCode!.trim();
+    if (event.search != null) {
+      _currentSearch = event.search!.trim();
     }
 
     emit(const RouteLoading());
@@ -97,7 +97,7 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
       page: 1,
       limit: _defaultLimit,
       direction: _currentDirection,
-      routeCode: _currentRouteCode,
+      search: _currentSearch,
     );
     await result.fold(
       (failure) async {
@@ -144,7 +144,7 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
         page: nextPage,
         limit: _defaultLimit,
         direction: _currentDirection,
-        routeCode: _currentRouteCode,
+        search: _currentSearch,
       );
       await result.fold(
         (failure) async {
@@ -194,7 +194,7 @@ class RouteBloc extends Bloc<RouteEvent, RouteState> {
   }
 
   bool _shouldUseSummaryTotal() {
-    return _currentRouteCode.isEmpty &&
+    return _currentSearch.isEmpty &&
         (_currentDirection == null || _currentDirection == RouteDirection.both);
   }
 

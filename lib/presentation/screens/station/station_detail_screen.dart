@@ -3,9 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:smartgo/core/di/injection.dart';
+import 'package:smartgo/core/services/storage_service.dart';
 import 'package:smartgo/data/datasources/user_favorites_remote_data_source.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_bloc.dart';
-import 'package:smartgo/presentation/blocs/auth/auth_event.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_state.dart';
 import '../../../domain/entities/station.dart';
 
@@ -24,14 +24,17 @@ class StationDetailScreen extends StatefulWidget {
 
 class _StationDetailScreenState extends State<StationDetailScreen> {
   late final UserFavoritesRemoteDataSource _favoritesDataSource;
+  late final StorageService _storageService;
   bool _isFavorite = false;
   bool _isUpdatingFavorite = false;
+  bool _isSyncingFavorite = false;
 
   @override
   void initState() {
     super.initState();
     _favoritesDataSource =
         UserFavoritesRemoteDataSource(client: getIt<http.Client>());
+    _storageService = getIt<StorageService>();
   }
 
   @override
@@ -42,13 +45,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
 
   void _syncFavoriteFromAuth(AuthState state) {
     if (state is AuthAuthenticated) {
-      final isFavorite =
-          state.user.favoriteStationIds.contains(widget.station.id);
-      if (isFavorite != _isFavorite) {
-        setState(() {
-          _isFavorite = isFavorite;
-        });
-      }
+      _loadFavoriteFromUser(state);
       return;
     }
 
@@ -70,32 +67,48 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
       return;
     }
 
-    final currentRouteIds = authState.user.favoriteRouteIds;
-    final currentStationIds = authState.user.favoriteStationIds;
-    final nextStationIds = currentStationIds.toSet();
-
-    final wasFavorite = nextStationIds.contains(widget.station.id);
-    if (wasFavorite) {
-      nextStationIds.remove(widget.station.id);
-    } else {
-      nextStationIds.add(widget.station.id);
-    }
+    List<String> currentRouteIds = const [];
+    List<String> currentStationIds = const [];
+    final nextStationIds = <String>{};
+    bool wasFavorite = false;
 
     setState(() {
       _isUpdatingFavorite = true;
-      _isFavorite = !wasFavorite;
     });
 
     try {
+      final accessToken = _resolveAccessToken(authState);
+      final user = await _favoritesDataSource.getUserById(
+        userId: authState.user.id,
+        accessToken: accessToken,
+      );
+      currentRouteIds = user.favoriteRouteIds;
+      currentStationIds = user.favoriteStationIds;
+      nextStationIds
+        ..clear()
+        ..addAll(currentStationIds);
+
+      wasFavorite = nextStationIds.contains(widget.station.id);
+      if (wasFavorite) {
+        nextStationIds.remove(widget.station.id);
+      } else {
+        nextStationIds.add(widget.station.id);
+      }
+
+      if (mounted) {
+        setState(() {
+          _isFavorite = !wasFavorite;
+        });
+      }
       await _favoritesDataSource.updateFavorites(
         userId: authState.user.id,
         favoriteRouteIds: currentRouteIds,
         favoriteStationIds: nextStationIds.toList(),
+        accessToken: accessToken,
       );
       if (!mounted) {
         return;
       }
-      context.read<AuthBloc>().add(const GetCurrentUserEvent());
       _showSnack(
         wasFavorite ? 'Đã bỏ yêu thích trạm' : 'Đã lưu trạm yêu thích',
       );
@@ -114,6 +127,38 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
         });
       }
     }
+  }
+
+  Future<void> _loadFavoriteFromUser(AuthAuthenticated authState) async {
+    if (_isSyncingFavorite) {
+      return;
+    }
+
+    _isSyncingFavorite = true;
+    try {
+      final accessToken = _resolveAccessToken(authState);
+      final user = await _favoritesDataSource.getUserById(
+        userId: authState.user.id,
+        accessToken: accessToken,
+      );
+      final isFavorite = user.favoriteStationIds.contains(widget.station.id);
+      if (mounted && isFavorite != _isFavorite) {
+        setState(() {
+          _isFavorite = isFavorite;
+        });
+      }
+    } catch (_) {
+      // Ignore sync errors.
+    } finally {
+      _isSyncingFavorite = false;
+    }
+  }
+
+  String? _resolveAccessToken(AuthAuthenticated authState) {
+    if (authState.accessToken.isNotEmpty) {
+      return authState.accessToken;
+    }
+    return _storageService.getAuthToken();
   }
 
   void _showSnack(String message, {bool isError = false}) {

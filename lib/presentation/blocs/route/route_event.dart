@@ -11,15 +11,15 @@ class FetchAllRoutesEvent extends RouteEvent {
   final int page;
   final int limit;
   final RouteDirection? direction;
-  final String routeCode;
+  final String search;
   const FetchAllRoutesEvent({
     this.page = 1,
     this.limit = 200,
     this.direction,
-    this.routeCode = '',
+    this.search = '',
   });
   @override
-  List<Object?> get props => [page, limit, direction, routeCode];
+  List<Object?> get props => [page, limit, direction, search];
 }
 
 class FetchRouteByIdEvent extends RouteEvent {
@@ -35,15 +35,15 @@ class FetchRouteByIdEvent extends RouteEvent {
 
 class RefreshRoutesEvent extends RouteEvent {
   final RouteDirection? direction;
-  final String? routeCode;
+  final String? search;
 
   const RefreshRoutesEvent({
     this.direction,
-    this.routeCode,
+    this.search,
   });
 
   @override
-  List<Object?> get props => [direction, routeCode];
+  List<Object?> get props => [direction, search];
 }
 
 class LoadMoreRoutesEvent extends RouteEvent {

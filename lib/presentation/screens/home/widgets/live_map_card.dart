@@ -1,30 +1,112 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/constants/app_env.dart';
+import '../../../../core/di/injection.dart';
 import '../../../../core/maps/app_tile_layer.dart';
-import '../../../../domain/entities/station.dart';
-import '../../../widgets/map/map_icons.dart';
+import '../../../../core/platform/sse_client.dart';
+import '../../../../core/services/storage_service.dart';
+import '../../../../core/themes/app_colors.dart';
 
-class LiveMapCard extends StatelessWidget {
-  final List<Station> stations;
+class LiveMapCard extends StatefulWidget {
+  const LiveMapCard({super.key});
 
-  const LiveMapCard({
-    super.key,
-    required this.stations,
-  });
+  @override
+  State<LiveMapCard> createState() => _LiveMapCardState();
+}
+
+class _LiveMapCardState extends State<LiveMapCard> {
+  final MapController _mapController = MapController();
+  List<_LiveBusPosition> _buses = [];
+
+  SseClient? _sseClient;
+  StreamSubscription<String>? _sseSubscription;
+  bool _isRealtime = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startRealtime();
+    });
+  }
+
+  @override
+  void dispose() {
+    _stopRealtime();
+    super.dispose();
+  }
+
+  void _stopRealtime() {
+    _sseSubscription?.cancel();
+    _sseSubscription = null;
+    _sseClient?.close();
+    _sseClient = null;
+    if (mounted) {
+      setState(() {
+        _isRealtime = false;
+      });
+    }
+  }
+
+  Future<void> _startRealtime() async {
+    final token = getIt<StorageService>().getAuthToken();
+    if (token == null || token.trim().isEmpty) return;
+
+    final uri = Uri.parse(
+      '${AppEnv.baseUrl}/api/v1/bus-simulations/positions/stream?token=${Uri.encodeComponent(token.trim())}',
+    );
+
+    final sseClient = createSseClient();
+    _sseClient = sseClient;
+
+    setState(() {
+      _isRealtime = true;
+    });
+
+    _sseSubscription = sseClient.connect(uri).listen(
+      (payload) {
+        if (!mounted) return;
+        try {
+          final data = json.decode(payload);
+          if (data is List) {
+            final parsed = data
+                .map(
+                    (e) => _LiveBusPosition.fromJson(e as Map<String, dynamic>))
+                .toList();
+            setState(() {
+              _buses = parsed;
+            });
+          }
+        } catch (_) {
+          // Ignore malformed JSON
+        }
+      },
+      onError: (_) {
+        if (!mounted) return;
+        _stopRealtime();
+        Future.delayed(const Duration(seconds: 5), () {
+          if (mounted) _startRealtime();
+        });
+      },
+      cancelOnError: false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    const maxPreviewStations = 40;
-    final previewStations = stations.length > maxPreviewStations
-        ? stations.take(maxPreviewStations).toList()
-        : stations;
-    final center = _resolveCenter(previewStations);
-    final visibleLabel = previewStations.length == stations.length
-        ? '${previewStations.length} trạm hiển thị'
-        : '${previewStations.length}/${stations.length} trạm hiển thị';
+    final activeBuses = _buses
+        .where((b) =>
+            b.status.toUpperCase() == 'RUNNING' ||
+            b.status.toUpperCase() == 'SCHEDULED')
+        .toList();
+    final center = _resolveCenter(activeBuses);
+    final visibleLabel = '${activeBuses.length} xe đang chạy';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -47,6 +129,7 @@ class LiveMapCard extends StatelessWidget {
           child: Stack(
             children: [
               FlutterMap(
+                mapController: _mapController,
                 options: MapOptions(
                   initialCenter: center,
                   initialZoom: 12.5,
@@ -59,16 +142,15 @@ class LiveMapCard extends StatelessWidget {
                 children: [
                   AppTileLayer.standard(),
                   MarkerLayer(
-                    markers: previewStations
+                    markers: activeBuses
                         .map(
-                          (station) => Marker(
-                            point: LatLng(station.latitude, station.longitude),
-                            width: 30,
-                            height: 30,
-                            child: _MapDot(
-                              icon: _stationIcon(station.stationType),
-                              color: _stationColor(
-                                  station.stationType, scheme.primary),
+                          (bus) => Marker(
+                            point: LatLng(bus.latitude, bus.longitude),
+                            width: 36,
+                            height: 36,
+                            child: _MapBusDot(
+                              routeCode: bus.routeCode,
+                              status: bus.status,
                             ),
                           ),
                         )
@@ -87,13 +169,29 @@ class LiveMapCard extends StatelessWidget {
                   child: Padding(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    child: Text(
-                      visibleLabel,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_isRealtime) ...[
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                              color: AppColors.busRunning,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        Text(
+                          visibleLabel,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -105,64 +203,96 @@ class LiveMapCard extends StatelessWidget {
     );
   }
 
-  LatLng _resolveCenter(List<Station> previewStations) {
-    if (previewStations.isEmpty) {
+  LatLng _resolveCenter(List<_LiveBusPosition> buses) {
+    if (buses.isEmpty) {
       return const LatLng(10.8231, 106.6297);
     }
 
     var latSum = 0.0;
     var lonSum = 0.0;
-    for (final station in previewStations) {
-      latSum += station.latitude;
-      lonSum += station.longitude;
+    for (final bus in buses) {
+      latSum += bus.latitude;
+      lonSum += bus.longitude;
     }
 
     return LatLng(
-      latSum / previewStations.length,
-      lonSum / previewStations.length,
+      latSum / buses.length,
+      lonSum / buses.length,
     );
-  }
-
-  IconData _stationIcon(StationType type) {
-    return MapIcons.stationType(type);
-  }
-
-  Color _stationColor(StationType type, Color primary) {
-    switch (type) {
-      case StationType.METRO_STATION:
-        return const Color(0xFF334155);
-      case StationType.FERRY_TERMINAL:
-        return const Color(0xFF0F766E);
-      default:
-        return primary;
-    }
   }
 }
 
-class _MapDot extends StatelessWidget {
-  final IconData icon;
-  final Color color;
+class _LiveBusPosition {
+  final String routeCode;
+  final double latitude;
+  final double longitude;
+  final String status;
 
-  const _MapDot({
-    required this.icon,
-    required this.color,
+  _LiveBusPosition({
+    required this.routeCode,
+    required this.latitude,
+    required this.longitude,
+    required this.status,
   });
+
+  factory _LiveBusPosition.fromJson(Map<String, dynamic> json) {
+    return _LiveBusPosition(
+      routeCode: json['routeCode']?.toString() ?? '',
+      latitude: (json['latitude'] as num?)?.toDouble() ?? 0.0,
+      longitude: (json['longitude'] as num?)?.toDouble() ?? 0.0,
+      status: json['status']?.toString() ?? 'UNKNOWN',
+    );
+  }
+}
+
+class _MapBusDot extends StatelessWidget {
+  final String routeCode;
+  final String status;
+
+  const _MapBusDot({
+    required this.routeCode,
+    required this.status,
+  });
+
+  Color _getStatusColor() {
+    final s = status.toUpperCase();
+    if (s == 'RUNNING') {
+      return AppColors.busRunning;
+    }
+    if (s == 'SCHEDULED') {
+      return AppColors.busScheduled;
+    }
+    if (s == 'COMPLETED') {
+      return AppColors.busCompleted;
+    }
+    return Colors.grey;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    final color = _getStatusColor();
+    return Container(
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
         boxShadow: [
           BoxShadow(
-            color: color.withValues(alpha: 0.35),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: Icon(icon, color: Colors.white, size: 16),
+      alignment: Alignment.center,
+      child: Text(
+        routeCode,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }

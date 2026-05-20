@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 
 import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/routes/app_routes.dart';
@@ -29,6 +30,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Map<String, dynamic>? _rawUser;
   AdminUserModel? _profileUser;
   bool _isLoadingProfile = false;
+  bool _isUpdating = false;
   String? _profileError;
 
   @override
@@ -100,13 +102,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _isLoadingProfile = false;
       });
 
-      final currentRaw = <String, dynamic>{...?_rawUser};
-      currentRaw['_id'] = me.id;
-      currentRaw['name'] = me.name;
-      currentRaw['email'] = me.email;
-      currentRaw['role'] = me.role;
-      currentRaw['avatar'] = me.avatar;
-      await getIt<StorageService>().saveUserData(json.encode(currentRaw));
+      _syncToStorage(me);
     } catch (e) {
       if (!mounted) {
         return;
@@ -117,6 +113,113 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _profileError = 'Không tải được hồ sơ từ server: $e';
       });
     }
+  }
+
+  Future<void> _updateAvatar() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 90,
+      maxWidth: 1080,
+    );
+
+    if (picked == null) return;
+
+    final token = getIt<StorageService>().getAuthToken();
+    final userId = _profileUser?.id ?? _rawUser?['_id']?.toString();
+
+    if (token == null || token.isEmpty || userId == null || userId.isEmpty) {
+      _showToast('Không thể xác thực để cập nhật ảnh đại diện');
+      return;
+    }
+
+    setState(() => _isUpdating = true);
+    try {
+      final updatedUser = await _usersDataSource.updateUserAvatar(
+        accessToken: token,
+        id: userId,
+        avatar: picked,
+      );
+      if (mounted) {
+        setState(() => _profileUser = updatedUser);
+        _syncToStorage(updatedUser);
+        _showToast('Đã cập nhật ảnh đại diện');
+      }
+    } catch (e) {
+      if (mounted) _showToast('Lỗi cập nhật ảnh: $e');
+    } finally {
+      if (mounted) setState(() => _isUpdating = false);
+    }
+  }
+
+  Future<void> _updateName() async {
+    final currentName =
+        _profileUser?.name ?? _rawUser?['name']?.toString() ?? '';
+    final nameCtl = TextEditingController(text: currentName);
+
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cập nhật tên hiển thị'),
+        content: TextField(
+          controller: nameCtl,
+          decoration: const InputDecoration(hintText: 'Nhập tên mới'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(nameCtl.text.trim()),
+            child: const Text('Lưu'),
+          ),
+        ],
+      ),
+    );
+
+    if (newName == null || newName.isEmpty || newName == currentName) return;
+
+    final token = getIt<StorageService>().getAuthToken();
+    final userId = _profileUser?.id ?? _rawUser?['_id']?.toString();
+
+    if (token == null || token.isEmpty || userId == null || userId.isEmpty) {
+      _showToast('Không thể xác thực để cập nhật tên');
+      return;
+    }
+
+    setState(() => _isUpdating = true);
+    try {
+      final updatedUser = await _usersDataSource.updateUserName(
+        accessToken: token,
+        id: userId,
+        name: newName,
+      );
+      if (mounted) {
+        setState(() => _profileUser = updatedUser);
+        _syncToStorage(updatedUser);
+        _showToast('Đã cập nhật tên hiển thị');
+      }
+    } catch (e) {
+      if (mounted) _showToast('Lỗi cập nhật tên: $e');
+    } finally {
+      if (mounted) setState(() => _isUpdating = false);
+    }
+  }
+
+  Future<void> _syncToStorage(AdminUserModel me) async {
+    final currentRaw = <String, dynamic>{...?_rawUser};
+    currentRaw['_id'] = me.id;
+    currentRaw['name'] = me.name;
+    currentRaw['email'] = me.email;
+    currentRaw['role'] = me.role;
+    currentRaw['avatar'] = me.avatar;
+    await getIt<StorageService>().saveUserData(json.encode(currentRaw));
+  }
+
+  void _showToast(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
@@ -181,36 +284,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 34,
-                  backgroundColor: scheme.primary,
-                  backgroundImage:
-                      (avatarUrl != null && avatarUrl.trim().isNotEmpty)
-                          ? NetworkImage(avatarUrl)
+                Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 34,
+                      backgroundColor: scheme.primary,
+                      backgroundImage:
+                          (avatarUrl != null && avatarUrl.trim().isNotEmpty)
+                              ? NetworkImage(avatarUrl)
+                              : null,
+                      child: (avatarUrl == null || avatarUrl.trim().isEmpty)
+                          ? Text(
+                              initials,
+                              style: TextStyle(
+                                color: scheme.onPrimary,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 20,
+                              ),
+                            )
                           : null,
-                  child: (avatarUrl == null || avatarUrl.trim().isEmpty)
-                      ? Text(
-                          initials,
-                          style: TextStyle(
-                            color: scheme.onPrimary,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 20,
+                    ),
+                    Positioned(
+                      bottom: -4,
+                      right: -4,
+                      child: GestureDetector(
+                        onTap: _isUpdating ? null : _updateAvatar,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: scheme.surface,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: scheme.outlineVariant),
                           ),
-                        )
-                      : null,
+                          child: Icon(Icons.camera_alt,
+                              size: 16, color: scheme.primary),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        name,
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: scheme.onPrimaryContainer,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: scheme.onPrimaryContainer,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: _isUpdating ? null : _updateName,
+                            icon: Icon(Icons.edit,
+                                color: scheme.onPrimaryContainer, size: 18),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -290,18 +427,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _profileInfoCard(
             title: 'Quản lý tài khoản',
             rows: [
-              _actionTile(
-                icon: Icons.person_outline,
-                title: 'Thông tin cá nhân',
-                subtitle: 'Xem dữ liệu hồ sơ và trạng thái tài khoản',
-                onTap: () => _showFeatureInProgress('Thông tin cá nhân'),
-              ),
-              _actionTile(
-                icon: Icons.lock_outline,
-                title: 'Bảo mật tài khoản',
-                subtitle: 'Quản lý phiên đăng nhập và xác thực',
-                onTap: () => _showFeatureInProgress('Bảo mật tài khoản'),
-              ),
               _actionTile(
                 icon: Icons.settings_outlined,
                 title: 'Cài đặt',
@@ -441,15 +566,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showFeatureInProgress(String featureName) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$featureName sẽ được cập nhật trong phiên bản tới.'),
-        behavior: SnackBarBehavior.floating,
       ),
     );
   }

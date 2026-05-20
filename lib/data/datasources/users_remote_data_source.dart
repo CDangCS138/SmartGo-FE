@@ -137,6 +137,53 @@ class UsersRemoteDataSource {
     }
   }
 
+  Future<AdminUserModel> updateUserName({
+    required String accessToken,
+    required String id,
+    required String name,
+  }) async {
+    final response = await client.put(
+      Uri.parse('$baseUrl/api/v1/users/$id'),
+      headers: {
+        ..._authHeaders(accessToken),
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({'name': name}),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Cập nhật tên thất bại: ${response.statusCode}');
+    }
+
+    final jsonBody = json.decode(response.body) as Map<String, dynamic>;
+    final data = jsonBody['data'] as Map<String, dynamic>? ?? jsonBody;
+    return AdminUserModel.fromJson(data);
+  }
+
+  Future<AdminUserModel> updateUserAvatar({
+    required String accessToken,
+    required String id,
+    required XFile avatar,
+  }) async {
+    final request = http.MultipartRequest(
+      'PUT',
+      Uri.parse('$baseUrl/api/v1/users/$id/avatar'),
+    );
+
+    request.headers.addAll(_authHeaders(accessToken));
+    request.files.add(await _avatarPart(avatar));
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    if (response.statusCode != 200) {
+      throw Exception('Cập nhật avatar thất bại: ${response.statusCode}');
+    }
+
+    final jsonBody = json.decode(response.body) as Map<String, dynamic>;
+    final data = jsonBody['data'] as Map<String, dynamic>? ?? jsonBody;
+    return AdminUserModel.fromJson(data);
+  }
+
   Future<http.MultipartFile> _avatarPart(XFile avatar) async {
     final bytes = await avatar.readAsBytes();
     return http.MultipartFile.fromBytes(

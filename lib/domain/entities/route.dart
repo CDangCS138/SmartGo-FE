@@ -16,7 +16,6 @@ class BusRoute extends Equatable {
   final String frequency;
   final List<String> baseFare;
   final double totalDistance;
-  final bool isWheelchairAccessible;
   final OperatingTime operatingTime;
   final String tripTime;
   final String numTrips;
@@ -38,7 +37,6 @@ class BusRoute extends Equatable {
     required this.frequency,
     required this.baseFare,
     required this.totalDistance,
-    required this.isWheelchairAccessible,
     required this.operatingTime,
     required this.tripTime,
     required this.numTrips,
@@ -62,7 +60,6 @@ class BusRoute extends Equatable {
         frequency,
         baseFare,
         totalDistance,
-        isWheelchairAccessible,
         operatingTime,
         tripTime,
         numTrips,

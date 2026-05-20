@@ -15,8 +15,10 @@ import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/logging/app_logger.dart';
 import 'package:smartgo/core/services/text_to_speech_service.dart';
 import 'package:smartgo/core/services/route_geometry_service.dart';
+import 'package:smartgo/core/services/storage_service.dart';
 import 'package:smartgo/core/themes/app_colors.dart';
 import 'package:smartgo/data/datasources/favorite_routes_remote_data_source.dart';
+import 'package:smartgo/data/datasources/user_favorites_remote_data_source.dart';
 import 'package:smartgo/data/models/favorite_route_model.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_bloc.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_state.dart';
@@ -138,6 +140,8 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   bool _isFetchingLocation = false;
   bool _isSpeakingRouteGuide = false;
   late final FavoriteRoutesRemoteDataSource _favoriteRoutesDataSource;
+  late final UserFavoritesRemoteDataSource _userFavoritesDataSource;
+  late final StorageService _storageService;
   FavoriteRouteModel? _pendingFavorite;
   bool _didApplyInitialFavorite = false;
   bool _isSavingFavorite = false;
@@ -174,6 +178,9 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     super.initState();
     _favoriteRoutesDataSource =
         FavoriteRoutesRemoteDataSource(client: getIt<http.Client>());
+    _userFavoritesDataSource =
+        UserFavoritesRemoteDataSource(client: getIt<http.Client>());
+    _storageService = getIt<StorageService>();
     _pendingFavorite = widget.initialFavorite;
     _loadStations();
     _syncBottomNavVisibility();
@@ -249,7 +256,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
       if (fromStation == null || toStation == null) {
         _didApplyInitialFavorite = true;
-        _showError('Khong tim thay tram cho tuyen yeu thich nay');
+        _showError('Không tìm thấy trạm cho tuyến yêu thích này');
         return;
       }
 
@@ -2425,7 +2432,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       return _formatLatLng(point);
     }
 
-    return isFrom ? 'Diem di' : 'Diem den';
+    return isFrom ? 'Điểm đi' : 'Điểm đến';
   }
 
   String _buildDefaultFavoriteName() {
@@ -2539,10 +2546,25 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     });
 
     try {
-      await _favoriteRoutesDataSource.createFavoriteRoute(request: request);
+      final created = await _favoriteRoutesDataSource.createFavoriteRoute(
+        request: request,
+      );
       if (!mounted) {
         return;
       }
+
+      try {
+        await _updateUserFavoriteRoutes(authState, created.id);
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        _showError(
+          'Đã lưu tuyến yêu thích nhưng không cập nhật được danh sách: $error',
+        );
+        return;
+      }
+
       _showInfo('Đã lưu tuyến yêu thích');
     } catch (error) {
       if (!mounted) {
@@ -2556,6 +2578,34 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         });
       }
     }
+  }
+
+  Future<void> _updateUserFavoriteRoutes(
+    AuthAuthenticated authState,
+    String favoriteRouteId,
+  ) async {
+    final accessToken = _resolveAccessToken(authState);
+    final user = await _userFavoritesDataSource.getUserById(
+      userId: authState.user.id,
+      accessToken: accessToken,
+    );
+
+    final nextRouteIds = user.favoriteRouteIds.toSet();
+    nextRouteIds.add(favoriteRouteId);
+
+    await _userFavoritesDataSource.updateFavorites(
+      userId: authState.user.id,
+      favoriteRouteIds: nextRouteIds.toList(),
+      favoriteStationIds: user.favoriteStationIds,
+      accessToken: accessToken,
+    );
+  }
+
+  String? _resolveAccessToken(AuthAuthenticated authState) {
+    if (authState.accessToken.isNotEmpty) {
+      return authState.accessToken;
+    }
+    return _storageService.getAuthToken();
   }
 
   void _reset() {
@@ -3762,7 +3812,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         FloatingActionButton.small(
-          heroTag: 'my_location',
+          heroTag: 'path_finding_my_location',
           onPressed:
               _isFetchingLocation ? null : () => _setUseCurrentLocation(),
           backgroundColor: scheme.surface,
@@ -3780,7 +3830,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         ),
         const SizedBox(height: 16),
         FloatingActionButton.extended(
-          heroTag: 'find_path',
+          heroTag: 'path_finding_find_path',
           onPressed: _findPath,
           icon: const Icon(MapIcons.search),
           label: const Text('Tìm đường'),

@@ -17,7 +17,6 @@ class RouteModel extends BusRoute {
     required super.frequency,
     required super.baseFare,
     required super.totalDistance,
-    required super.isWheelchairAccessible,
     required super.operatingTime,
     required super.tripTime,
     required super.numTrips,
@@ -82,8 +81,6 @@ class RouteModel extends BusRoute {
               .toList() ??
           [],
       totalDistance: ((json['totalDistance'] as num?) ?? 0).toDouble(),
-      isWheelchairAccessible:
-          (json['isWheelchairAccessible'] as bool?) ?? false,
       operatingTime: operatingTime,
       tripTime: (json['tripTime'] ?? '') as String,
       numTrips: (json['numTrips'] ?? '') as String,
@@ -108,7 +105,6 @@ class RouteModel extends BusRoute {
       'frequency': frequency,
       'baseFare': baseFare,
       'totalDistance': totalDistance,
-      'isWheelchairAccessible': isWheelchairAccessible,
       'operatingTime': OperatingTimeModel(
         from: operatingTime.from,
         to: operatingTime.to,

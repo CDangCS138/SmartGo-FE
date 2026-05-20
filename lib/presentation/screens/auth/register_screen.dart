@@ -67,7 +67,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   String? _validateEmail(String? value) {
     if (value == null || value.isEmpty) {
-      return 'Vui lòng nhập email hoặc số điện thoại';
+      return 'Vui lòng nhập email';
     }
     if (_isEmailInput) {
       final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
@@ -456,7 +456,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     TextFormField(
                       controller: _emailController,
                       decoration: InputDecoration(
-                        labelText: 'Email hoặc số điện thoại',
+                        labelText: 'Email',
                         hintText: 'user@example.com',
                         filled: true,
                         fillColor: Colors.grey[100],

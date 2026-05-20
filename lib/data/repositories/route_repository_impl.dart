@@ -17,14 +17,14 @@ class RouteRepositoryImpl implements RouteRepository {
     int page = 1,
     int limit = 200,
     RouteDirection? direction,
-    String routeCode = '',
+    String search = '',
   }) async {
     try {
       final response = await remoteDataSource.getAllRoutes(
         page: page,
         limit: limit,
         direction: direction,
-        routeCode: routeCode,
+        search: search,
       );
       return Right(response.data.routes);
     } on ServerException catch (e) {
