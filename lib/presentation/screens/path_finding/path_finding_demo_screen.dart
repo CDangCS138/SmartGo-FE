@@ -10,6 +10,7 @@ import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:smartgo/core/maps/app_tile_layer.dart';
+import 'package:smartgo/core/platform/geolocation.dart';
 import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/logging/app_logger.dart';
 import 'package:smartgo/core/services/text_to_speech_service.dart';
@@ -134,11 +135,15 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   List<Station> _stations = [];
   List<PathResult>? _paths;
   bool _isLoading = false;
+  bool _isFetchingLocation = false;
   bool _isSpeakingRouteGuide = false;
   late final FavoriteRoutesRemoteDataSource _favoriteRoutesDataSource;
   FavoriteRouteModel? _pendingFavorite;
   bool _didApplyInitialFavorite = false;
   bool _isSavingFavorite = false;
+  bool _hasAutoSetInitialLocation = false;
+  LatLng? _lastKnownLocation;
+  DateTime? _lastLocationTime;
 
   // Route geometry service and cache
   final RouteGeometryService _routeGeometryService =
@@ -227,6 +232,10 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   void _applyInitialFavoriteIfNeeded() {
     final favorite = _pendingFavorite;
     if (favorite == null || _didApplyInitialFavorite) {
+      if (!_hasAutoSetInitialLocation && _stations.isNotEmpty) {
+        _hasAutoSetInitialLocation = true;
+        _autoSetStartLocation();
+      }
       return;
     }
 
@@ -343,6 +352,231 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     );
   }
 
+  Future<LatLng?> _fetchCurrentLocation() async {
+    // Dùng lại vị trí cũ nếu khoảng cách từ lần lấy trước chưa tới 2 phút
+    if (_lastKnownLocation != null && _lastLocationTime != null) {
+      if (DateTime.now().difference(_lastLocationTime!) <
+          const Duration(minutes: 2)) {
+        return _lastKnownLocation;
+      }
+    }
+
+    try {
+      var position = await getCurrentGeoPosition(
+        enableHighAccuracy: true,
+        timeout: const Duration(seconds: 10),
+      );
+
+      if (position == null) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        position = await getCurrentGeoPosition(
+          enableHighAccuracy: false,
+          timeout: const Duration(seconds: 10),
+        );
+      }
+
+      if (position != null) {
+        final point = LatLng(position.latitude, position.longitude);
+        _lastKnownLocation = point;
+        _lastLocationTime = DateTime.now();
+        return point;
+      }
+    } catch (e) {
+      AppLogger.error('Lỗi lấy vị trí: $e');
+    }
+
+    // Nếu lỗi hoặc timeout, ưu tiên trả về vị trí cũ đã lưu thay vì báo lỗi luôn
+    return _lastKnownLocation;
+  }
+
+  Future<String?> _reverseGeocode(LatLng point) async {
+    try {
+      final uri = Uri.https(
+        'nominatim.openstreetmap.org',
+        '/reverse',
+        {
+          'lat': point.latitude.toString(),
+          'lon': point.longitude.toString(),
+          'format': 'json',
+          'accept-language': 'vi',
+        },
+      );
+
+      final response = await http.get(
+        uri,
+        headers: {'User-Agent': 'SmartGo/1.0'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['display_name'] as String?;
+      }
+    } catch (e) {
+      AppLogger.error('Reverse geocode error: $e');
+    }
+    return null;
+  }
+
+  Future<void> _autoSetStartLocation() async {
+    if (_stations.isEmpty && _inputMode == InputMode.busStop) return;
+
+    setState(() => _isFetchingLocation = true);
+    final point = await _fetchCurrentLocation();
+    if (!mounted) return;
+    setState(() => _isFetchingLocation = false);
+
+    if (point == null) return;
+
+    // Centering the map based on user's location
+    if (_fromPoint == null && _toPoint == null) {
+      _mapController.move(point, 15);
+    }
+
+    if (_fromPoint != null ||
+        _fromStation != null ||
+        _fromAddressController.text.isNotEmpty) {
+      return; // Không can thiệp nếu người dùng đã tự tay chọn điểm A
+    }
+
+    setState(() {
+      if (_inputMode == InputMode.map) {
+        _fromPoint = point;
+        _showInfo('Đã tự động chọn vị trí hiện tại làm điểm xuất phát');
+      } else if (_inputMode == InputMode.busStop) {
+        Station? nearestStation;
+        double minDistance = double.infinity;
+        for (final station in _stations) {
+          final stationPoint = LatLng(station.latitude, station.longitude);
+          final distance = _calculateDistance(point, stationPoint);
+          if (distance < minDistance) {
+            minDistance = distance;
+            nearestStation = station;
+          }
+        }
+        if (nearestStation != null) {
+          _fromStation = nearestStation;
+          _fromPoint =
+              LatLng(nearestStation.latitude, nearestStation.longitude);
+          _showInfo(
+              'Đã tự động chọn trạm xuất phát gần nhất: ${nearestStation.stationName}');
+        }
+      } else if (_inputMode == InputMode.address) {
+        _fromPoint = point;
+        _fromAddressController.text = 'Vị trí hiện tại';
+        _showInfo('Đã tự động chọn vị trí hiện tại làm điểm xuất phát');
+
+        _reverseGeocode(point).then((address) {
+          if (mounted && address != null && _fromPoint == point) {
+            _fromAddressController.text = address;
+          }
+        });
+      }
+    });
+  }
+
+  Future<void> _setUseCurrentLocation({bool? isFrom}) async {
+    setState(() {
+      _isFetchingLocation = true;
+    });
+
+    final point = await _fetchCurrentLocation();
+
+    if (!mounted) return;
+    setState(() {
+      _isFetchingLocation = false;
+    });
+
+    if (point != null) {
+      _mapController.move(point, 15);
+
+      final bool setAsFrom;
+      if (isFrom != null) {
+        setAsFrom = isFrom;
+      } else {
+        if (_inputMode == InputMode.busStop) {
+          setAsFrom = _fromStation == null;
+        } else if (_inputMode == InputMode.address) {
+          setAsFrom =
+              (_fromPoint == null || _fromAddressController.text.isEmpty);
+        } else {
+          setAsFrom = _fromPoint == null;
+        }
+      }
+
+      final bool setAsTo = !setAsFrom &&
+          (isFrom == null
+              ? (_inputMode == InputMode.busStop
+                  ? _toStation == null
+                  : _inputMode == InputMode.address
+                      ? (_toPoint == null || _toAddressController.text.isEmpty)
+                      : _toPoint == null)
+              : !isFrom);
+
+      if (!setAsFrom && !setAsTo && isFrom == null) {
+        // Nếu đã chọn cả A và B, việc bấm nút định vị nổi chỉ để di chuyển màn hình về vị trí hiện tại
+        return;
+      }
+
+      if (_inputMode == InputMode.busStop) {
+        Station? nearestStation;
+        double minDistance = double.infinity;
+        for (final station in _stations) {
+          final stationPoint = LatLng(station.latitude, station.longitude);
+          final distance = _calculateDistance(point, stationPoint);
+          if (distance < minDistance) {
+            minDistance = distance;
+            nearestStation = station;
+          }
+        }
+        if (nearestStation != null) {
+          setState(() {
+            if (setAsFrom) {
+              _fromStation = nearestStation;
+              _fromPoint =
+                  LatLng(nearestStation!.latitude, nearestStation.longitude);
+              _showInfo(
+                  'Đã chọn trạm xuất phát gần nhất: ${nearestStation.stationName}');
+            } else {
+              _toStation = nearestStation;
+              _toPoint =
+                  LatLng(nearestStation!.latitude, nearestStation.longitude);
+              _showInfo(
+                  'Đã chọn trạm đích gần nhất: ${nearestStation.stationName}');
+            }
+          });
+        }
+      } else {
+        setState(() {
+          if (setAsFrom) {
+            _fromPoint = point;
+            _fromAddressController.text = 'Vị trí hiện tại';
+            _fromAddressResults.clear();
+          } else {
+            _toPoint = point;
+            _toAddressController.text = 'Vị trí hiện tại';
+            _toAddressResults.clear();
+          }
+        });
+        _showInfo(setAsFrom
+            ? 'Đã đặt điểm đi là vị trí hiện tại'
+            : 'Đã đặt điểm đến là vị trí hiện tại');
+
+        _reverseGeocode(point).then((address) {
+          if (mounted && address != null) {
+            if (setAsFrom && _fromPoint == point) {
+              _fromAddressController.text = address;
+            } else if (!setAsFrom && _toPoint == point) {
+              _toAddressController.text = address;
+            }
+          }
+        });
+      }
+    } else {
+      _showError(
+          'Không thể lấy vị trí. Vui lòng kiểm tra quyền truy cập vị trí (GPS).');
+    }
+  }
+
   void _onInputModeChanged(InputMode mode) {
     if (_inputMode == mode) {
       return;
@@ -364,6 +598,8 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       _fromAddressResults.clear();
       _toAddressResults.clear();
     });
+
+    _autoSetStartLocation();
   }
 
   String _formatCostForSpeech(double value) {
@@ -3521,15 +3757,40 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
   Widget _buildFAB() {
     final scheme = Theme.of(context).colorScheme;
-    return FloatingActionButton.extended(
-      onPressed: _findPath,
-      icon: const Icon(MapIcons.search),
-      label: const Text('Tìm đường'),
-      backgroundColor: scheme.primary,
-      foregroundColor: scheme.onPrimary,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        FloatingActionButton.small(
+          heroTag: 'my_location',
+          onPressed:
+              _isFetchingLocation ? null : () => _setUseCurrentLocation(),
+          backgroundColor: scheme.surface,
+          foregroundColor: scheme.primary,
+          child: _isFetchingLocation
+              ? SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: scheme.primary,
+                  ),
+                )
+              : const Icon(Icons.my_location),
+        ),
+        const SizedBox(height: 16),
+        FloatingActionButton.extended(
+          heroTag: 'find_path',
+          onPressed: _findPath,
+          icon: const Icon(MapIcons.search),
+          label: const Text('Tìm đường'),
+          backgroundColor: scheme.primary,
+          foregroundColor: scheme.onPrimary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ],
     );
   }
 
@@ -3690,6 +3951,8 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                             _fromAddressResults.clear();
                           });
                         },
+                        onIconPressed: () =>
+                            _setUseCurrentLocation(isFrom: true),
                         voiceTooltip: 'Nhập điểm xuất phát bằng giọng nói',
                         ttsTooltip: 'Đọc điểm xuất phát',
                         ttsEmptyMessage: 'Bạn chưa nhập điểm xuất phát để đọc.',
@@ -3708,6 +3971,8 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                             _toAddressResults.clear();
                           });
                         },
+                        onIconPressed: () =>
+                            _setUseCurrentLocation(isFrom: false),
                         voiceTooltip: 'Nhập điểm đến bằng giọng nói',
                         ttsTooltip: 'Đọc điểm đến',
                         ttsEmptyMessage: 'Bạn chưa nhập điểm đến để đọc.',
@@ -3753,6 +4018,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     required Color accentColor,
     required ValueChanged<String> onChanged,
     required VoidCallback onClear,
+    VoidCallback? onIconPressed,
     required String voiceTooltip,
     required String ttsTooltip,
     required String ttsEmptyMessage,
@@ -3769,17 +4035,23 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       ),
       child: Row(
         children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: accentColor.withValues(alpha: 0.25),
+          Tooltip(
+            message: 'Dùng vị trí hiện tại',
+            child: GestureDetector(
+              onTap: onIconPressed,
+              child: Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: accentColor.withValues(alpha: 0.25),
+                  ),
+                ),
+                child: Icon(icon, size: 16, color: accentColor),
               ),
             ),
-            child: Icon(icon, size: 16, color: accentColor),
           ),
           const SizedBox(width: 8),
           Expanded(

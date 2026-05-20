@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import '../constants/app_env.dart';
 import 'encryption_service.dart';
 
 class EncryptionInterceptor extends Interceptor {
@@ -9,6 +10,9 @@ class EncryptionInterceptor extends Interceptor {
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) async {
     try {
+      if (!AppEnv.encryptionEnabled) {
+        return handler.next(response);
+      }
       final contentType = response.headers.value('content-type') ?? '';
       final status = response.statusCode ?? 0;
       if (contentType.contains('text/event-stream')) {
@@ -54,5 +58,7 @@ class EncryptionInterceptor extends Interceptor {
 }
 
 void configureDioForEncryption(Dio dio) {
-  dio.interceptors.add(EncryptionInterceptor(EncryptionService()));
+  if (AppEnv.encryptionEnabled) {
+    dio.interceptors.add(EncryptionInterceptor(EncryptionService()));
+  }
 }
