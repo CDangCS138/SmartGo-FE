@@ -311,30 +311,30 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               ),
             ),
           ],
-          if (!notification.isRead) ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: UIConstants.primaryTeal,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                // const SizedBox(width: 6),
-                // const Text(
-                //   'Chưa đọc',
-                //   style: TextStyle(
-                //     color: UIConstants.primaryTeal,
-                //     fontSize: 12,
-                //     fontWeight: FontWeight.w600,
-                //   ),
-                // ),
-              ],
-            ),
-          ],
+          // if (!notification.isRead) ...[
+          //   const SizedBox(height: 10),
+          //   Row(
+          //     children: [
+          //       Container(
+          //         width: 8,
+          //         height: 8,
+          //         decoration: const BoxDecoration(
+          //           color: UIConstants.primaryTeal,
+          //           shape: BoxShape.circle,
+          //         ),
+          //       ),
+          //       const SizedBox(width: 6),
+          //       const Text(
+          //         'Chưa đọc',
+          //         style: TextStyle(
+          //           color: UIConstants.primaryTeal,
+          //           fontSize: 12,
+          //           fontWeight: FontWeight.w600,
+          //         ),
+          //       ),
+          //     ],
+          //   ),
+          // ],
         ],
       ),
     );
