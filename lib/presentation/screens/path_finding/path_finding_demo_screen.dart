@@ -13,6 +13,7 @@ import 'package:smartgo/core/maps/app_tile_layer.dart';
 import 'package:smartgo/core/platform/geolocation.dart';
 import 'package:smartgo/core/di/injection.dart';
 import 'package:smartgo/core/logging/app_logger.dart';
+import 'package:smartgo/core/routes/app_routes.dart';
 import 'package:smartgo/core/services/text_to_speech_service.dart';
 import 'package:smartgo/core/services/route_geometry_service.dart';
 import 'package:smartgo/core/services/storage_service.dart';
@@ -20,6 +21,7 @@ import 'package:smartgo/core/themes/app_colors.dart';
 import 'package:smartgo/data/datasources/favorite_routes_remote_data_source.dart';
 import 'package:smartgo/data/datasources/user_favorites_remote_data_source.dart';
 import 'package:smartgo/data/models/favorite_route_model.dart';
+import 'package:smartgo/domain/repositories/route_repository.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_bloc.dart';
 import 'package:smartgo/presentation/blocs/auth/auth_state.dart';
 import 'package:smartgo/presentation/blocs/route/route_bloc.dart';
@@ -30,6 +32,7 @@ import 'package:smartgo/presentation/blocs/station/station_event.dart';
 import 'package:smartgo/presentation/blocs/station/station_state.dart';
 import 'package:smartgo/domain/entities/station.dart';
 import 'package:smartgo/domain/entities/path_finding.dart';
+import 'package:smartgo/presentation/screens/route/route_ticket_payment_screen.dart';
 import 'package:smartgo/presentation/widgets/loading_indicator.dart';
 import 'package:smartgo/presentation/widgets/map/map_icons.dart';
 import 'package:smartgo/presentation/widgets/tts_icon_button.dart';
@@ -121,6 +124,8 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
   ScaffoldMessengerState? _scaffoldMessenger;
   ColorScheme? _colorScheme;
+  RouteInformationProvider? _routeInfoProvider;
+  VoidCallback? _routeInfoListener;
 
   // Map state
   LatLng? _fromPoint;
@@ -144,6 +149,8 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
   late final FavoriteRoutesRemoteDataSource _favoriteRoutesDataSource;
   late final UserFavoritesRemoteDataSource _userFavoritesDataSource;
   late final StorageService _storageService;
+  late final RouteRepository _routeRepository;
+  final Set<String> _routesBeingPurchased = {};
   FavoriteRouteModel? _pendingFavorite;
   bool _didApplyInitialFavorite = false;
   bool _isSavingFavorite = false;
@@ -183,6 +190,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     _userFavoritesDataSource =
         UserFavoritesRemoteDataSource(client: getIt<http.Client>());
     _storageService = getIt<StorageService>();
+    _routeRepository = getIt<RouteRepository>();
     _pendingFavorite = widget.initialFavorite;
     _loadStations();
     _syncBottomNavVisibility();
@@ -196,11 +204,19 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     super.didChangeDependencies();
     _scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
     _colorScheme = Theme.of(context).colorScheme;
+    _attachRouterListener();
+  }
+
+  @override
+  void deactivate() {
+    _stopRouteGuidance();
+    super.deactivate();
   }
 
   @override
   void dispose() {
     TextToSpeechService.instance.stop();
+    _routeInfoProvider?.removeListener(_routeInfoListener!);
     _fromAddressController.dispose();
     _toAddressController.dispose();
     _fromAddressDebounce?.cancel();
@@ -221,6 +237,18 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
   void _syncBottomNavVisibility() {
     HomeNavigationBar.isVisible.value = !_showResults && !_showFullRouteDetail;
+  }
+
+  void _attachRouterListener() {
+    _routeInfoProvider?.removeListener(_routeInfoListener!);
+    _routeInfoProvider = GoRouter.of(context).routeInformationProvider;
+    _routeInfoListener = () {
+      final location = _routeInfoProvider?.value.uri.toString() ?? '';
+      if (!location.startsWith(AppRoutes.pathFindingDemo)) {
+        _stopRouteGuidance();
+      }
+    };
+    _routeInfoProvider!.addListener(_routeInfoListener!);
   }
 
   void _loadStations() {
@@ -628,6 +656,19 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         ? path.stations.last.stationName
         : (_toStation?.stationName ?? 'điểm đến');
 
+    String resolveStationLabel(String label) {
+      final normalized = label.trim();
+      if (normalized.isEmpty || path.stations.isEmpty) {
+        return label;
+      }
+      final index = _findStationIndexByIdentity(path.stations, normalized);
+      if (index < 0 || index >= path.stations.length) {
+        return label;
+      }
+      final stationName = path.stations[index].stationName.trim();
+      return stationName.isNotEmpty ? stationName : label;
+    }
+
     final buffer = StringBuffer();
     buffer.writeln('SmartGo xin gửi hướng dẫn di chuyển chi tiết.');
     buffer.writeln('Bạn đi từ $startName đến $endName.');
@@ -654,6 +695,8 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       buffer.writeln('Các bước di chuyển như sau.');
       for (var i = 0; i < path.segments.length; i++) {
         final segment = path.segments[i];
+        final fromLabel = resolveStationLabel(segment.from);
+        final toLabel = resolveStationLabel(segment.to);
         final duration = segment.time > 0
             ? '${segment.time.toStringAsFixed(0)} phút'
             : 'chưa có thời gian ước tính';
@@ -663,7 +706,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
             : 'không phát sinh thêm chi phí';
 
         buffer.writeln(
-          'Bước ${i + 1}. Đi tuyến ${segment.routeCode}, ${segment.routeName}. Từ ${segment.from} đến ${segment.to}. Quãng đường $distance, thời gian $duration, $cost.',
+          'Bước ${i + 1}. Đi tuyến ${segment.routeCode}, ${segment.routeName}. Từ $fromLabel đến $toLabel. Quãng đường $distance, thời gian $duration, $cost.',
         );
 
         if (i < path.segments.length - 1) {
@@ -718,9 +761,9 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     }
 
     if (leg.isTransfer) {
-      final fromName =
-          leg.fromStationName ?? leg.fromStationCode ?? 'trạm trước';
-      return 'Đi bộ $distance trong khoảng $duration để chuyển tuyến từ $fromName sang ${leg.stationName}.';
+      final fromName = (leg.fromStationName ?? '').trim();
+      final readableFrom = fromName.isNotEmpty ? fromName : 'trạm trước';
+      return 'Đi bộ $distance trong khoảng $duration để chuyển tuyến từ $readableFrom sang ${leg.stationName}.';
     }
 
     return 'Đi bộ $distance trong khoảng $duration quanh khu vực trạm ${leg.stationName}.';
@@ -1728,13 +1771,13 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     }
 
     final outlineColor = Colors.white.withValues(
-      alpha: isSelected ? 0.75 : 0.3,
+      alpha: isSelected ? 0.9 : 0.55,
     );
     final dashColor = AppColors.aiWarning.withValues(
-      alpha: isSelected ? 0.82 : 0.4,
+      alpha: isSelected ? 0.95 : 0.7,
     );
-    final outlineWidth = isSelected ? 3.4 : 2.4;
-    final dashWidth = isSelected ? 2.0 : 1.35;
+    final outlineWidth = isSelected ? 5.2 : 3.6;
+    final dashWidth = isSelected ? 3.4 : 2.4;
 
     final polylines = <Polyline>[];
     for (var i = 0; i < legs.length; i++) {
@@ -1793,6 +1836,61 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     return palette[index % palette.length];
   }
 
+  Color _segmentColorForPath(PathResult path, int segmentIndex) {
+    if (segmentIndex >= 0 && segmentIndex < path.segments.length) {
+      final routeCode = path.segments[segmentIndex].routeCode.trim();
+      return _colorForRouteCode(routeCode, segmentIndex);
+    }
+    return _colorForRouteCode('', segmentIndex);
+  }
+
+  Color _colorForRouteCode(String routeCode, int fallbackIndex) {
+    const palette = AppColors.pathResultPalette;
+    if (routeCode.isEmpty) {
+      return palette[fallbackIndex % palette.length];
+    }
+
+    var hash = 0;
+    for (final unit in routeCode.codeUnits) {
+      hash = (hash + unit) % 997;
+    }
+    return palette[hash % palette.length];
+  }
+
+  List<List<LatLng>> _resolveSegmentGeometriesForPath(
+    PathResult path,
+    int pathIndex,
+  ) {
+    final cachedSegments = _safeRouteGeometrySegmentsFromCache(pathIndex);
+    if (cachedSegments != null && cachedSegments.isNotEmpty) {
+      return cachedSegments;
+    }
+
+    final accessPoints = _safeTransitAccessFromCache(pathIndex);
+    final fallbackPoints = _buildTransitDrivingWaypoints(
+      path,
+      accessPoints: accessPoints,
+    );
+    if (fallbackPoints.length >= 2) {
+      return <List<LatLng>>[fallbackPoints];
+    }
+
+    return const <List<LatLng>>[];
+  }
+
+  List<Marker> _buildRouteSegmentMarkers(PathResult path, int pathIndex) {
+    final segmentGeometries = _resolveSegmentGeometriesForPath(path, pathIndex);
+    if (segmentGeometries.isEmpty) {
+      return const <Marker>[]; // Yêu cầu: xóa số thứ tự trên polyline
+    }
+
+    final markers = <Marker>[];
+    // Theo yêu cầu của người dùng, các số thứ tự trên polyline đã được loại bỏ
+    // để giao diện bản đồ gọn gàng hơn.
+
+    return markers;
+  }
+
   PathResult? _selectedPath() {
     final paths = _paths;
     final selectedIndex = _selectedPathIndex;
@@ -1844,24 +1942,28 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
 
       final color = _pathColor(index);
 
-      if (isSelected) {
-        for (final segmentPoints in segmentGeometries) {
+      for (var segmentIndex = 0;
+          segmentIndex < segmentGeometries.length;
+          segmentIndex++) {
+        final segmentPoints = segmentGeometries[segmentIndex];
+        final segmentColor =
+            isSelected ? _segmentColorForPath(path, segmentIndex) : color;
+
+        if (isSelected) {
           polylines.add(
             Polyline(
               points: segmentPoints,
-              strokeWidth: 7,
+              strokeWidth: 7.2,
               color: Colors.white,
             ),
           );
         }
-      }
 
-      for (final segmentPoints in segmentGeometries) {
         polylines.add(
           Polyline(
             points: segmentPoints,
-            strokeWidth: isSelected ? 4.5 : 2.4,
-            color: isSelected ? color : color.withValues(alpha: 0.38),
+            strokeWidth: isSelected ? 4.8 : 2.4,
+            color: isSelected ? segmentColor : color.withValues(alpha: 0.38),
           ),
         );
       }
@@ -1931,8 +2033,8 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       accessMarkers.add(
         Marker(
           point: access.busAccessCoordinate,
-          width: 44,
-          height: 44,
+          width: 4,
+          height: 4,
           child: GestureDetector(
             onTap: () => _showInfo(
               'Điểm đón/trả trên đường chính cho trạm ${stations[index].stationName}',
@@ -1946,7 +2048,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
               child: const Icon(
                 MapIcons.route,
                 color: Colors.white,
-                size: 18,
+                size: 2,
               ),
             ),
           ),
@@ -2443,6 +2545,51 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     return '$fromLabel -> $toLabel';
   }
 
+  Future<void> _onBuyTicketForRoute(String routeCode) async {
+    if (_routesBeingPurchased.contains(routeCode)) {
+      return;
+    }
+
+    setState(() {
+      _routesBeingPurchased.add(routeCode);
+    });
+
+    try {
+      final result =
+          await _routeRepository.getAllRoutes(routeCode: routeCode, limit: 1);
+      if (!mounted) return;
+
+      result.fold(
+        (failure) {
+          _showError(
+              'Không tìm thấy thông tin tuyến $routeCode: ${failure.message}');
+        },
+        (routes) {
+          if (routes.isEmpty) {
+            _showError('Không tìm thấy thông tin cho tuyến $routeCode.');
+            return;
+          }
+          final route = routes.first;
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => RouteTicketPaymentScreen(route: route),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        _showError('Lỗi khi lấy thông tin tuyến: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _routesBeingPurchased.remove(routeCode);
+        });
+      }
+    }
+  }
+
   Future<String?> _promptFavoriteName(String defaultName) async {
     final controller = TextEditingController(text: defaultName);
     final result = await showDialog<String>(
@@ -2788,6 +2935,10 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       selectedPath,
       color: selectedPathColor,
     );
+    final routeSegmentMarkers =
+        (selectedPath != null && _selectedPathIndex != null)
+            ? _buildRouteSegmentMarkers(selectedPath, _selectedPathIndex!)
+            : const <Marker>[];
     final overlayMarkers =
         hasRouteResults ? <Marker>[] : _buildOverlayMarkers();
 
@@ -2881,6 +3032,10 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         if (routeStationMarkers.isNotEmpty)
           MarkerLayer(
             markers: routeStationMarkers,
+          ),
+        if (routeSegmentMarkers.isNotEmpty)
+          MarkerLayer(
+            markers: routeSegmentMarkers,
           ),
         // Overlay markers (from/to points) always on top
         if (overlayMarkers.isNotEmpty)
@@ -4367,8 +4522,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                   ),
                   IconButton(
                     tooltip: 'Dừng đọc hướng dẫn',
-                    onPressed:
-                        _isSpeakingRouteGuide ? _stopRouteGuidance : null,
+                    onPressed: _stopRouteGuidance,
                     icon: const Icon(Icons.stop_circle_outlined),
                   ),
                 ],
@@ -4376,96 +4530,229 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
             ),
             // Danh sách hướng dẫn từng bước
             Expanded(
-              child: ListView.builder(
+              child: ListView(
                 padding: const EdgeInsets.all(16),
-                itemCount: path.segments.length + 1,
-                itemBuilder: (context, index) {
-                  if (index == 0) {
-                    // Điểm xuất phát
-                    final firstStationName = path.stations.isNotEmpty
-                        ? path.stations.first.stationName
-                        : (_fromStation?.stationName ?? 'Điểm xuất phát');
-                    final toFirstStationWalkingLeg =
-                        _findWalkingLegByType(path, 'to_first_station');
-
-                    return Column(
-                      children: [
-                        _buildRouteStepCard(
-                          icon: Icons.my_location,
-                          iconColor: Colors.green,
-                          title: 'Điểm xuất phát',
-                          subtitle: firstStationName,
-                          isFirst: true,
-                        ),
-                        if (toFirstStationWalkingLeg != null &&
-                            toFirstStationWalkingLeg.distanceKm > 0)
-                          _buildWalkingLegStepCard(toFirstStationWalkingLeg),
-                      ],
-                    );
-                  }
-
-                  final segmentIndex = index - 1;
-                  final segment = path.segments[segmentIndex];
-                  final isLast = segmentIndex == path.segments.length - 1;
-
-                  // Kiểm tra xem có chuyển tuyến không
-                  final isTransfer = segmentIndex > 0 &&
-                      path.segments[segmentIndex - 1].routeCode !=
-                          segment.routeCode;
-                  final transferWalkingLeg = isTransfer
-                      ? _findTransferWalkingLeg(
-                          path,
-                          path.segments[segmentIndex - 1],
-                          segment,
-                        )
-                      : null;
-                  final lastWalkingLeg = isLast
-                      ? _findWalkingLegByType(path, 'from_last_station')
-                      : null;
-                  final hasLastWalkingLeg =
-                      lastWalkingLeg != null && lastWalkingLeg.distanceKm > 0;
-
-                  return Column(
-                    children: [
-                      if (isTransfer)
-                        _buildTransferIndicator(
-                          path.segments[segmentIndex - 1].routeCode,
-                          segment.routeCode,
-                        ),
-                      if (transferWalkingLeg != null &&
-                          transferWalkingLeg.distanceKm > 0)
-                        _buildWalkingLegStepCard(transferWalkingLeg),
-                      _buildRouteStepCard(
-                        icon: Icons.directions_bus,
-                        iconColor: Colors.blue,
-                        title:
-                            'Tuyến ${segment.routeCode}: ${segment.routeName}',
-                        subtitle:
-                            '${segment.from} → ${segment.to}\n${(segment.distance).toStringAsFixed(1)} km • ${(segment.time).toStringAsFixed(0)} phút',
-                        routeCode: segment.routeCode,
-                        isLast: isLast && !hasLastWalkingLeg,
-                      ),
-                      if (hasLastWalkingLeg)
-                        _buildWalkingLegStepCard(lastWalkingLeg),
-                      if (isLast)
-                        _buildRouteStepCard(
-                          icon: Icons.location_on,
-                          iconColor: Colors.red,
-                          title: 'Điểm đến',
-                          subtitle: path.stations.isNotEmpty
-                              ? path.stations.last.stationName
-                              : (_toStation?.stationName ?? 'Điểm đến'),
-                          isLast: true,
-                        ),
-                    ],
-                  );
-                },
+                children: _buildRouteDetailSteps(path),
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  List<Widget> _buildRouteDetailSteps(PathResult path) {
+    final steps = <Widget>[];
+    final usedLegs = <WalkingLeg>{};
+    final allWalkingLegs = path.allWalkingLegs;
+    final stationAccessLegs = allWalkingLegs
+        .where((leg) => leg.normalizedType == 'station_access')
+        .toList();
+    final accessByCode = <String, WalkingLeg>{};
+    final accessByName = <String, WalkingLeg>{};
+    for (final leg in stationAccessLegs) {
+      final codeKey = _normalizeStationIdentity(leg.stationCode);
+      if (codeKey.isNotEmpty && !accessByCode.containsKey(codeKey)) {
+        accessByCode[codeKey] = leg;
+      }
+      final nameKey = _normalizeStationIdentity(leg.stationName);
+      if (nameKey.isNotEmpty && !accessByName.containsKey(nameKey)) {
+        accessByName[nameKey] = leg;
+      }
+    }
+
+    void addWalkingLegs(Iterable<WalkingLeg> legs) {
+      for (final leg in legs) {
+        if (usedLegs.add(leg)) {
+          steps.add(_buildWalkingLegStepCard(leg));
+        }
+      }
+    }
+
+    void addStationAccessFor({String? stationCode, String? stationName}) {
+      WalkingLeg? leg;
+      if (stationCode != null && stationCode.trim().isNotEmpty) {
+        final key = _normalizeStationIdentity(stationCode);
+        leg = accessByCode[key] ?? accessByName[key];
+      }
+      if (leg == null && stationName != null && stationName.trim().isNotEmpty) {
+        final key = _normalizeStationIdentity(stationName);
+        leg = accessByName[key] ?? accessByCode[key];
+      }
+      if (leg != null) {
+        addWalkingLegs([leg]);
+      }
+    }
+
+    PathStationInfo? resolveStationByLabel(String label) {
+      if (path.stations.isEmpty) {
+        return null;
+      }
+      final index = _findStationIndexByIdentity(path.stations, label);
+      if (index < 0 || index >= path.stations.length) {
+        return null;
+      }
+      return path.stations[index];
+    }
+
+    final firstStationName = path.stations.isNotEmpty
+        ? path.stations.first.stationName
+        : (_fromStation?.stationName ?? 'Điểm xuất phát');
+    steps.add(
+      _buildRouteStepCard(
+        icon: Icons.my_location,
+        iconColor: Colors.green,
+        title: 'Điểm xuất phát',
+        subtitle: firstStationName,
+        isFirst: true,
+      ),
+    );
+
+    addWalkingLegs(
+      allWalkingLegs.where((leg) => leg.isToFirstStation),
+    );
+    if (path.stations.isNotEmpty) {
+      final firstStation = path.stations.first;
+      addStationAccessFor(
+        stationCode: firstStation.stationCode,
+        stationName: firstStation.stationName,
+      );
+    }
+
+    if (path.segments.isEmpty) {
+      addWalkingLegs(allWalkingLegs.where((leg) => !usedLegs.contains(leg)));
+      steps.add(
+        _buildRouteStepCard(
+          icon: Icons.location_on,
+          iconColor: Colors.red,
+          title: 'Điểm đến',
+          subtitle: path.stations.isNotEmpty
+              ? path.stations.last.stationName
+              : (_toStation?.stationName ?? 'Điểm đến'),
+          isLast: true,
+        ),
+      );
+      return steps;
+    }
+
+    for (var segmentIndex = 0;
+        segmentIndex < path.segments.length;
+        segmentIndex++) {
+      final segment = path.segments[segmentIndex];
+      final isTransfer = segmentIndex > 0 &&
+          path.segments[segmentIndex - 1].routeCode != segment.routeCode;
+
+      if (isTransfer) {
+        steps.add(
+          _buildTransferIndicator(
+            path.segments[segmentIndex - 1].routeCode,
+            segment.routeCode,
+          ),
+        );
+        addWalkingLegs(
+          _collectTransferWalkingLegs(
+            path,
+            path.segments[segmentIndex - 1],
+            segment,
+            usedLegs,
+          ),
+        );
+      }
+
+      final fromStation = resolveStationByLabel(segment.from);
+      final fromLabel = fromStation?.stationName ?? segment.from;
+      if (fromStation != null) {
+        addStationAccessFor(
+          stationCode: fromStation.stationCode,
+          stationName: fromStation.stationName,
+        );
+      } else {
+        addStationAccessFor(stationName: segment.from);
+      }
+
+      final toStation = resolveStationByLabel(segment.to);
+      final toLabel = toStation?.stationName ?? segment.to;
+
+      final segmentColor = _segmentColorForPath(path, segmentIndex);
+      steps.add(
+        _buildRouteStepCard(
+          icon: Icons.directions_bus,
+          iconColor: segmentColor,
+          title: '$fromLabel → $toLabel',
+          subtitle:
+              'Tuyến ${segment.routeCode} - ${segment.routeName}\n${(segment.distance).toStringAsFixed(1)} km • ${(segment.time).toStringAsFixed(0)} phút',
+          routeCode: segment.routeCode,
+        ),
+      );
+      if (toStation != null) {
+        addStationAccessFor(
+          stationCode: toStation.stationCode,
+          stationName: toStation.stationName,
+        );
+      } else {
+        addStationAccessFor(stationName: segment.to);
+      }
+
+      if (segmentIndex == path.segments.length - 1) {
+        addWalkingLegs(
+          allWalkingLegs.where((leg) => leg.isFromLastStation),
+        );
+      }
+    }
+
+    addWalkingLegs(
+      allWalkingLegs.where((leg) => !usedLegs.contains(leg)),
+    );
+
+    steps.add(
+      _buildRouteStepCard(
+        icon: Icons.location_on,
+        iconColor: Colors.red,
+        title: 'Điểm đến',
+        subtitle: path.stations.isNotEmpty
+            ? path.stations.last.stationName
+            : (_toStation?.stationName ?? 'Điểm đến'),
+        isLast: true,
+      ),
+    );
+
+    return steps;
+  }
+
+  List<WalkingLeg> _collectTransferWalkingLegs(
+    PathResult path,
+    PathSegment previous,
+    PathSegment next,
+    Set<WalkingLeg> usedLegs,
+  ) {
+    final matched = <WalkingLeg>[];
+    for (final leg in path.allWalkingLegs) {
+      if (!leg.isTransfer || usedLegs.contains(leg)) {
+        continue;
+      }
+
+      final previousToKey = _normalizeStationIdentity(previous.to);
+      final nextFromKey = _normalizeStationIdentity(next.from);
+      final fromCodeKey = _normalizeStationIdentity(leg.fromStationCode ?? '');
+      final toCodeKey = _normalizeStationIdentity(leg.stationCode);
+      final fromNameKey = _normalizeStationIdentity(leg.fromStationName ?? '');
+      final toNameKey = _normalizeStationIdentity(leg.stationName);
+
+      final matchesByCode = fromCodeKey.isNotEmpty &&
+          toCodeKey.isNotEmpty &&
+          previousToKey == fromCodeKey &&
+          nextFromKey == toCodeKey;
+      final matchesByName = fromNameKey.isNotEmpty &&
+          toNameKey.isNotEmpty &&
+          previousToKey == fromNameKey &&
+          nextFromKey == toNameKey;
+
+      if (matchesByCode || matchesByName) {
+        matched.add(leg);
+      }
+    }
+
+    return matched;
   }
 
   Widget _buildRouteStepCard({
@@ -4477,6 +4764,8 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     bool isFirst = false,
     bool isLast = false,
   }) {
+    final isBuying =
+        routeCode != null && _routesBeingPurchased.contains(routeCode);
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -4514,7 +4803,7 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -4522,10 +4811,32 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
                     Text(
                       subtitle,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 13,
                         color: Colors.grey[700],
                       ),
                     ),
+                    if (routeCode != null && routeCode.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: FilledButton.tonalIcon(
+                          onPressed: isBuying
+                              ? null
+                              : () => _onBuyTicketForRoute(routeCode),
+                          icon: isBuying
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.confirmation_num_outlined,
+                                  size: 16),
+                          label:
+                              Text(isBuying ? 'Đang tải...' : 'Mua vé tuyến'),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -4534,42 +4845,6 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
         ],
       ),
     );
-  }
-
-  WalkingLeg? _findWalkingLegByType(PathResult path, String type) {
-    final normalizedType = type.trim().toLowerCase();
-    for (final leg in path.walkingLegs) {
-      if (leg.normalizedType == normalizedType) {
-        return leg;
-      }
-    }
-    return null;
-  }
-
-  WalkingLeg? _findTransferWalkingLeg(
-    PathResult path,
-    PathSegment previous,
-    PathSegment next,
-  ) {
-    for (final leg in path.walkingLegs) {
-      if (!leg.isTransfer) {
-        continue;
-      }
-
-      final fromCode = (leg.fromStationCode ?? '').trim();
-      final toCode = leg.stationCode.trim();
-      final previousTo = previous.to.trim();
-      final nextFrom = next.from.trim();
-
-      if (fromCode.isNotEmpty &&
-          toCode.isNotEmpty &&
-          previousTo == fromCode &&
-          nextFrom == toCode) {
-        return leg;
-      }
-    }
-
-    return null;
   }
 
   Widget _buildWalkingLegStepCard(WalkingLeg leg) {
@@ -4594,9 +4869,9 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
     }
 
     if (leg.isTransfer) {
-      final fromName =
-          leg.fromStationName ?? leg.fromStationCode ?? 'trạm trước';
-      return '$fromName → ${leg.stationName} • $distance • $duration';
+      final fromName = (leg.fromStationName ?? '').trim();
+      final readableFrom = fromName.isNotEmpty ? fromName : 'trạm trước';
+      return '$readableFrom → ${leg.stationName} • $distance • $duration';
     }
 
     return '${leg.stationName} • $distance • $duration';

@@ -197,14 +197,10 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _detail('ID', detail.id),
                 _detail('Tên', detail.name),
                 _detail('Email', detail.email),
                 _detail('Role', detail.role),
-                _detail('Created by', detail.createdBy ?? '-'),
-                _detail('Updated by', detail.updatedBy ?? '-'),
                 _detail('Created at', _fmt(detail.createdAt)),
-                _detail('Updated at', _fmt(detail.updatedAt)),
               ],
             ),
             actions: [
