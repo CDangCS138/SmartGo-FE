@@ -381,7 +381,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Chào mừng đến Signal Map',
+                      'Chào mừng đến SmartGo',
                       style: theme.textTheme.bodyLarge?.copyWith(
                         color: Colors.grey[600],
                       ),
