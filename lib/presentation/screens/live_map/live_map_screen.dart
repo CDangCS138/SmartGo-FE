@@ -467,6 +467,9 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
               options: MapOptions(
                 initialCenter: _currentPosition,
                 initialZoom: _currentZoom,
+                minZoom: AppTileLayer.minZoom,
+                maxZoom: AppTileLayer.maxZoom,
+                cameraConstraint: AppTileLayer.vietnamCameraConstraint,
               ),
               children: [
                 AppTileLayer.standard(),

@@ -2947,6 +2947,9 @@ class _PathFindingDemoScreenState extends State<PathFindingDemoScreen> {
       options: MapOptions(
         initialCenter: const LatLng(10.8231, 106.6297), // Ho Chi Minh City
         initialZoom: 13,
+        minZoom: AppTileLayer.minZoom,
+        maxZoom: AppTileLayer.maxZoom,
+        cameraConstraint: AppTileLayer.vietnamCameraConstraint,
         onTap: (_, point) => _onMapTap(point),
         onLongPress: (_, point) => _onMapLongPress(point),
       ),
