@@ -1081,6 +1081,9 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen>
       options: MapOptions(
         initialCenter: center,
         initialZoom: 13,
+        minZoom: AppTileLayer.minZoom,
+        maxZoom: AppTileLayer.maxZoom,
+        cameraConstraint: AppTileLayer.vietnamCameraConstraint,
       ),
       children: [
         AppTileLayer.standard(),

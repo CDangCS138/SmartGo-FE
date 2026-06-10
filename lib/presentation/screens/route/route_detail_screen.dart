@@ -1313,6 +1313,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               options: MapOptions(
                 initialCenter: LatLng(centerLat, centerLon),
                 initialZoom: 13.0,
+                minZoom: AppTileLayer.minZoom,
+                maxZoom: AppTileLayer.maxZoom,
+                cameraConstraint: AppTileLayer.vietnamCameraConstraint,
                 interactionOptions: const InteractionOptions(
                   flags: InteractiveFlag.drag | InteractiveFlag.pinchZoom,
                 ),

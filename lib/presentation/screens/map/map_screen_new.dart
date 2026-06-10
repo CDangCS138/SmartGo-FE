@@ -1167,8 +1167,9 @@ out body;
             options: MapOptions(
               initialCenter: _currentPosition,
               initialZoom: 13,
-              minZoom: 10,
-              maxZoom: 19,
+              minZoom: AppTileLayer.minZoom,
+              maxZoom: AppTileLayer.maxZoom,
+              cameraConstraint: AppTileLayer.vietnamCameraConstraint,
             ),
             children: [
               AppTileLayer.standard(),

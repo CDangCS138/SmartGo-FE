@@ -151,6 +151,9 @@ class _LiveMapCardState extends State<LiveMapCard> {
                 options: MapOptions(
                   initialCenter: center,
                   initialZoom: 12.5,
+                  minZoom: AppTileLayer.minZoom,
+                  maxZoom: AppTileLayer.maxZoom,
+                  cameraConstraint: AppTileLayer.vietnamCameraConstraint,
                   interactionOptions: const InteractionOptions(
                     flags: InteractiveFlag.drag |
                         InteractiveFlag.pinchZoom |

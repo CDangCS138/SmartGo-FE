@@ -1343,8 +1343,9 @@ class _BusSimulationScreenState extends State<BusSimulationScreen>
             options: MapOptions(
               initialCenter: center,
               initialZoom: 13.5,
-              minZoom: 10,
-              maxZoom: 18.5,
+              minZoom: AppTileLayer.minZoom,
+              maxZoom: AppTileLayer.maxZoom,
+              cameraConstraint: AppTileLayer.vietnamCameraConstraint,
               onPositionChanged: (_, __) {
                 _shouldAutoCenterMap = false;
               },
