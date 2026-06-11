@@ -58,6 +58,10 @@
 	<string>SmartGo sử dụng microphone để nhập điểm đi, điểm đến và nội dung bằng giọng nói.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>SmartGo sử dụng nhận diện giọng nói để hỗ trợ người dùng nhập văn bản nhanh hơn.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SmartGo cần quyền truy cập vị trí để tìm kiếm các trạm và định vị bản đồ trực quan.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>SmartGo cần quyền truy cập vị trí để chỉ đường và tối ưu hóa tuyến đường di chuyển của bạn.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>
